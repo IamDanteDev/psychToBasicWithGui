@@ -1,4 +1,4 @@
-Psychto Basic - FNF (Psych Engine) mod to Scratch porting tool with GUI
+Psych to Basic - FNF (Psych Engine) mod to Scratch porting tool with GUI
 =====================================================================
 
 Converts Friday Night Funkin' mods (Psych Engine format) into a playable

@@ -1,0 +1,5 @@
+audioop-lts
+Pillow
+pydub
+mutagen
+customtkinter

@@ -8,3 +8,10 @@ built_*.sb3
 
 # Extracted/processed output folders
 extracted*/
+
+# Local per-machine GUI state (last mod folder)
+generated/
+
+# Local tooling and test fixtures (not part of the ported project)
+.atl/
+/PLAYTIME [2026]/

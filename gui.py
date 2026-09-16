@@ -6,16 +6,22 @@ progress tracking, and cancel support.
 """
 
 import glob
+import json
 import os
 import queue
 import shutil
+import socket
 import subprocess
 import sys
 import threading
+import webbrowser
+import zipfile
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageTk
 
 # Same order as port.py
 PREREQUISITE_SCRIPTS = [
@@ -34,6 +40,8 @@ APP_TITLE = "Psych To Basic"
 APP_SUBTITLE = "FNF mod  →  Scratch .sb3 port"
 DEFAULT_FOLDER = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(DEFAULT_FOLDER, "assets")
+GENERATED_DIR = os.path.join(DEFAULT_FOLDER, "generated")
+CONFIG_PATH = os.path.join(GENERATED_DIR, "psychtobasic_config.json")
 
 # Logo banner (replaces the text title when all files exist)
 LOGO_FILES = [
@@ -47,6 +55,215 @@ GREEN = "#2fa572"
 RED = "#e05252"
 YELLOW = "#e0b84c"
 GRAY = "#8a8a8a"
+
+# --- UI strings (EN / ES). Pipeline log lines stay English (they mirror console). ---
+STRINGS = {
+    "en": {
+        "app_title": "Psych To Basic",
+        "app_subtitle": "FNF mod  →  Scratch .sb3 port",
+        "app_log_title": "Psych To Basic — Log",
+        "status_ready": "Ready",
+        "status_running": "Running",
+        "status_failed": "Failed",
+        "status_error": "Error",
+        "status_cancelled": "Cancelled",
+        "status_cancelling": "Cancelling...",
+        "status_done": "Done",
+        "pipeline_cancelled": "--- Pipeline cancelled by user ---",
+        "step_failed": "!!! STEP FAILED: '{step}' (exit code {code})",
+        "finish_success": "Pipeline finished successfully.",
+        "finish_failed_step": "Step '{step}' failed (exit code {code}).",
+        "internal_error": "Internal error: {exc}",
+        "folder_label": "Mod folder",
+        "browse": "Browse...",
+        "check_mod": "Check mod",
+        "folder_hint": "Mod root folder (pack.png). Missing toolkit files are auto-staged on Run.",
+        "steps_label": "Steps to run",
+        "check_all": "Check all",
+        "uncheck_all": "Uncheck all",
+        "log_label": "Log",
+        "save_log": "Save log",
+        "open_folder": "Open folder",
+        "open_turbowarp": "Open in TurboWarp",
+        "cancel": "Cancel",
+        "cancel_x": "✖ Cancel",
+        "ffmpeg_missing": "⚠ FFmpeg missing",
+        "run": "▶  Run",
+        "assets_preview": "Assets",
+        "err_title": "Error",
+        "done_title": "Done",
+        "folder_not_exist": "Folder does not exist:\n{folder}",
+        "no_steps_title": "No steps",
+        "no_steps_body": "Select at least one step to run.",
+        "no_sb3_title": "No .sb3 found",
+        "no_sb3_body": "No .sb3 project was found in the selected folder.\n"
+                       "The build step will produce no output.\n\nContinue anyway?",
+        "save_log_title": "Save log",
+        "save_log_empty": "Nothing in the log yet.",
+        "turbowarp_title": "Open in TurboWarp",
+        "turbowarp_no_build": "Build the project first — no built_*.sb3 found.",
+        "turbowarp_server_fail": "Could not start the local file server.",
+        "ffmpeg_title": "FFmpeg required",
+        "ffmpeg_body": "FFmpeg is used to convert OGG audio to MP3 during the port.\n\n"
+                       "Install it, then close and reopen this app:\n\n    {cmd}",
+        "ffmpeg_warn_log": "FFmpeg or ffprobe not found — OGG→MP3 conversion will fail. "
+                           "Click the '{btn}' button for install instructions.",
+        "no_prereq_warn": "No prerequisite scripts yet — they will be auto-staged from the tool folder on Run.",
+        "staged_log": "Staged {n} toolkit file(s) into mod folder: {names}",
+        "build_step": "Building Scratch project (.sb3)",
+        "run_step": "Running {step}",
+        "auto_tag": "(auto)",
+        "ck_pack": "pack.png",
+        "ck_chars": "data/characters JSONs",
+        "ck_songs": "data/songs JSONs",
+        "ck_weeks": "data/weeks JSONs",
+        "ck_toolkit": "toolkit scripts",
+        "ck_sb3": "Scratch template (.sb3)",
+        "ck_audio": "audio files (ogg/mp3)",
+        "ck_icons": "character icons (png)",
+        "ck_ffmpeg": "ffmpeg on PATH",
+        "ck_missing": "missing: {list}",
+        "ck_present": "all present",
+        "ck_found": "{n} found",
+        "mod_check_header": "Mod check: {folder}",
+        "mod_check_done": "Mod check finished.",
+        "preview_title": "Asset preview",
+        "preview_none": "No images found in the mod folder.",
+        "check_mod_title": "Check mod",
+        "rdy_title": "Port readiness",
+        "rdy_no_mod": "Not a mod folder",
+        "rdy_root": "Mod root",
+        "rdy_weeks": "Weeks",
+        "rdy_chars": "Characters",
+        "rdy_charts": "Charts",
+        "rdy_audio": "Audio",
+        "rdy_stages": "Stages",
+        "rdy_icons": "Icons",
+        "rdy_notes": "Note types",
+        "rdy_noteskins": "Noteskins",
+        "rdy_template": ".sb3 template",
+        "rdy_ffmpeg": "FFmpeg",
+        "rdy_auto": "auto-detected: {name}",
+        "rdy_verdict_yes": "Porteable: YES — all core pieces present",
+        "rdy_verdict_no": "Porteable: NO — missing {missing}",
+        "rdy_verdict_partial": "Porteable: PARTIAL — missing {missing}",
+    },
+    "es": {
+        "app_title": "Psych To Basic",
+        "app_subtitle": "Mod FNF  →  Puerto a Scratch .sb3",
+        "app_log_title": "Psych To Basic — Registro",
+        "status_ready": "Listo",
+        "status_running": "Corriendo",
+        "status_failed": "Error",
+        "status_error": "Error",
+        "status_cancelled": "Cancelado",
+        "status_cancelling": "Cancelando...",
+        "status_done": "Listo",
+        "pipeline_cancelled": "--- Pipeline cancelado por el usuario ---",
+        "step_failed": "!!! PASO FALLÓ: '{step}' (código {code})",
+        "finish_success": "Pipeline finalizado correctamente.",
+        "finish_failed_step": "El paso '{step}' falló (código {code}).",
+        "internal_error": "Error interno: {exc}",
+        "folder_label": "Carpeta del mod",
+        "browse": "Examinar...",
+        "check_mod": "Comprobar mod",
+        "folder_hint": "Carpeta raíz del mod (pack.png). Los archivos del toolkit faltantes se copian solos al ejecutar.",
+        "steps_label": "Pasos a ejecutar",
+        "check_all": "Marcar todos",
+        "uncheck_all": "Desmarcar todos",
+        "log_label": "Registro",
+        "save_log": "Guardar registro",
+        "open_folder": "Abrir carpeta",
+        "open_turbowarp": "Abrir en TurboWarp",
+        "cancel": "Cancelar",
+        "cancel_x": "✖ Cancelar",
+        "ffmpeg_missing": "⚠ Falta FFmpeg",
+        "run": "▶  Ejecutar",
+        "assets_preview": "Recursos",
+        "err_title": "Error",
+        "done_title": "Listo",
+        "folder_not_exist": "La carpeta no existe:\n{folder}",
+        "no_steps_title": "Sin pasos",
+        "no_steps_body": "Selecciona al menos un paso para ejecutar.",
+        "no_sb3_title": "No se encontró .sb3",
+        "no_sb3_body": "No se encontró ningún proyecto .sb3 en la carpeta seleccionada.\n"
+                       "El paso de construcción no producirá salida.\n\n¿Continuar de todos modos?",
+        "save_log_title": "Guardar registro",
+        "save_log_empty": "El registro está vacío.",
+        "turbowarp_title": "Abrir en TurboWarp",
+        "turbowarp_no_build": "Primero construye el proyecto — no se encontró built_*.sb3.",
+        "turbowarp_server_fail": "No se pudo iniciar el servidor local.",
+        "ffmpeg_title": "Se requiere FFmpeg",
+        "ffmpeg_body": "FFmpeg se usa para convertir audio OGG a MP3 durante el port.\n\n"
+                       "Instálalo y luego cierra y reabre la app:\n\n    {cmd}",
+        "ffmpeg_warn_log": "No se encontró FFmpeg o ffprobe — la conversión OGG→MP3 fallará. "
+                           "Haz clic en el botón '{btn}' para ver las instrucciones.",
+        "no_prereq_warn": "Aún no hay scripts del toolkit — se copiarán solos desde la carpeta de la herramienta al ejecutar.",
+        "staged_log": "Se copiaron {n} archivo(s) del toolkit a la carpeta del mod: {names}",
+        "build_step": "Construyendo proyecto Scratch (.sb3)",
+        "run_step": "Ejecutando {step}",
+        "auto_tag": "(auto)",
+        "ck_pack": "pack.png",
+        "ck_chars": "JSONs de data/characters",
+        "ck_songs": "JSONs de data/songs",
+        "ck_weeks": "JSONs de data/weeks",
+        "ck_toolkit": "scripts del toolkit",
+        "ck_sb3": "Plantilla Scratch (.sb3)",
+        "ck_audio": "archivos de audio (ogg/mp3)",
+        "ck_icons": "iconos de personajes (png)",
+        "ck_ffmpeg": "ffmpeg en PATH",
+        "ck_missing": "faltan: {list}",
+        "ck_present": "todo presente",
+        "ck_found": "{n} encontrados",
+        "mod_check_header": "Comprobación del mod: {folder}",
+        "mod_check_done": "Comprobación del mod finalizada.",
+        "preview_title": "Vista previa de recursos",
+        "preview_none": "No se encontraron imágenes en la carpeta del mod.",
+        "check_mod_title": "Comprobar mod",
+        "rdy_title": "Preparación del port",
+        "rdy_no_mod": "No es una carpeta de mod",
+        "rdy_root": "Raíz del mod",
+        "rdy_weeks": "Semanas",
+        "rdy_chars": "Personajes",
+        "rdy_charts": "Canciones (charts)",
+        "rdy_audio": "Audio",
+        "rdy_stages": "Escenarios",
+        "rdy_icons": "Iconos",
+        "rdy_notes": "Note types",
+        "rdy_noteskins": "Noteskins",
+        "rdy_template": "Plantilla .sb3",
+        "rdy_ffmpeg": "FFmpeg",
+        "rdy_auto": "auto-detectado: {name}",
+        "rdy_verdict_yes": "Porteable: SÍ — todos los componentes clave presentes",
+        "rdy_verdict_no": "Porteable: NO — falta {missing}",
+        "rdy_verdict_partial": "Porteable: PARCIAL — falta {missing}",
+    },
+}
+
+
+def _safe_glob(dirpath, tail="*", recursive=False):
+    """glob.glob with the directory part escaped so '[' in folder names works.
+    Folder names like 'PLAYTIME [2026]' would otherwise be parsed as glob
+    character classes and match nothing."""
+    if not os.path.isdir(dirpath):
+        return []
+    prefix = glob.escape(dirpath.rstrip(os.sep))
+    if recursive:
+        pattern = os.path.join(prefix, "**", "*")
+    else:
+        pattern = os.path.join(prefix, tail)
+    return glob.glob(pattern, recursive=recursive)
+
+
+class _CORSHandler(SimpleHTTPRequestHandler):
+    """Local file server with CORS so TurboWarp (https) can fetch the .sb3."""
+
+    def end_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        super().end_headers()
+
+    def log_message(self, *args):
+        pass
 
 
 class PortGUI(ctk.CTk):
@@ -63,6 +280,10 @@ class PortGUI(ctk.CTk):
         self.proc = None
         self.cancel_requested = False
         self.log_queue = queue.Queue()
+        self.log_buffer = []
+        self._readiness_job = None
+
+        self._ffmpeg_ok = self._check_ffmpeg()
 
         self._build_ui()
         self._build_overlay()
@@ -70,11 +291,152 @@ class PortGUI(ctk.CTk):
         self._refresh_steps()
 
         self.after(100, self._drain_queue)
+        self.mod_folder.trace_add("write", self._schedule_readiness)
+        if not self._ffmpeg_ok:
+            self.log(
+                self._tr("ffmpeg_warn_log", btn=self._tr("ffmpeg_missing")),
+                "warn",
+            )
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _on_close(self):
         self._stop_music()
+        if self._http_server is not None:
+            threading.Thread(
+                target=self._http_server.shutdown, daemon=True
+            ).start()
         self.destroy()
+
+    # ---------- Config & environment ----------
+
+    def _tr(self, key, **fmt):
+        table = STRINGS.get(self.lang, STRINGS["en"])
+        text = table.get(key, STRINGS["en"].get(key, key))
+        if fmt:
+            try:
+                return text.format(**fmt)
+            except (KeyError, IndexError):
+                return text
+        return text
+
+    def _load_config(self):
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception:
+            return {}
+
+    def _save_config(self, folder):
+        try:
+            os.makedirs(GENERATED_DIR, exist_ok=True)
+            data = {"last_mod_folder": folder}
+            if getattr(self, "lang", "en"):
+                data["lang"] = self.lang
+            with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+        except OSError as exc:
+            self.log(f"Config save failed: {exc}", "warn")
+
+    def _check_ffmpeg(self):
+        """pydub needs both ffmpeg and ffprobe on PATH for OGG -> MP3."""
+        return (
+            shutil.which("ffmpeg") is not None
+            and shutil.which("ffprobe") is not None
+        )
+
+    def _show_ffmpeg_help(self):
+        if sys.platform.startswith("win"):
+            cmd = "winget install Gyan.FFmpeg"
+        elif sys.platform == "darwin":
+            cmd = "brew install ffmpeg"
+        else:
+            cmd = "sudo apt install ffmpeg"
+        messagebox.showinfo(
+            self._tr("ffmpeg_title"),
+            self._tr("ffmpeg_body", cmd=cmd),
+        )
+
+    def _set_lang(self, lang):
+        if lang == self.lang or self.pipeline_running:
+            return
+        self.lang = lang
+        self._save_config(self.mod_folder.get().strip() or DEFAULT_FOLDER)
+        self._rebuild_ui()
+
+    def _rebuild_ui(self):
+        """Rebuild all UI widgets with the current language."""
+        if getattr(self, "_ui_outer", None) is not None:
+            self._ui_outer.destroy()
+        self._build_ui()
+        self._build_overlay()
+        self._refresh_steps()
+        self.progress.set(self.progress_display)
+        self._set_running(False)   # refresh button states after rebuild
+        self._update_readiness()
+        target = self.main_log_text
+        target.configure(state="normal")
+        for line, kind in self.log_buffer:
+            target.insert("end", line + "\n", kind)
+        target.see("end")
+        target.configure(state="disabled")
+
+    def _preview_assets(self):
+        """Show pack.png + character icons from the mod folder in a grid."""
+        folder = self.mod_folder.get().strip()
+        if not os.path.isdir(folder):
+            messagebox.showerror(
+                self._tr("check_mod_title"),
+                self._tr("folder_not_exist", folder=folder),
+            )
+            return
+
+        paths = []
+        pack = os.path.join(folder, "pack.png")
+        if os.path.exists(pack):
+            paths.append(pack)
+        chars = os.path.join(folder, "data", "characters")
+        if os.path.isdir(chars):
+            paths.extend(
+                sorted(_safe_glob(chars, "*.png", recursive=True))
+            )
+        # Legacy layout (charts flat in a root icons/ folder)
+        legacy = os.path.join(folder, "icons")
+        if os.path.isdir(legacy):
+            paths.extend(sorted(_safe_glob(legacy, "*.png")))
+        paths = paths[:200]
+
+        win = ctk.CTkToplevel(self)
+        win.title(self._tr("preview_title"))
+        win.geometry("760x520")
+        scroll = ctk.CTkScrollableFrame(win)
+        scroll.pack(fill="both", expand=True, padx=10, pady=10)
+
+        if not paths:
+            ctk.CTkLabel(
+                scroll, text=self._tr("preview_none"), text_color=GRAY
+            ).pack(pady=20)
+            return
+
+        shown = 0
+        for i, path in enumerate(paths):
+            try:
+                im = Image.open(path)
+                im.thumbnail((96, 96))
+                photo = ImageTk.PhotoImage(im)
+            except Exception:
+                continue
+            card = ctk.CTkFrame(scroll, corner_radius=8)
+            card.grid(row=shown // 6, column=shown % 6, padx=6, pady=6)
+            img_label = ctk.CTkLabel(card, image=photo, text="")
+            img_label.image = photo  # keep a reference alive
+            img_label.pack(padx=6, pady=(6, 0))
+            ctk.CTkLabel(
+                card,
+                text=os.path.basename(path),
+                font=ctk.CTkFont(size=10),
+                text_color=GRAY,
+            ).pack(padx=6, pady=(0, 6))
+            shown += 1
 
     # ---------- App icon ----------
 
@@ -103,7 +465,7 @@ class PortGUI(ctk.CTk):
         self._stop_music()
         files = sorted(
             f
-            for f in glob.glob(os.path.join(ASSETS_DIR, "Music", "*"))
+            for f in _safe_glob(os.path.join(ASSETS_DIR, "Music"), "*")
             if f.lower().endswith((".mp3", ".ogg", ".wav", ".flac", ".m4a"))
         )
         if not files:
@@ -145,9 +507,17 @@ class PortGUI(ctk.CTk):
         self.music_proc = None
 
     def _init_vars(self):
-        self.mod_folder = ctk.StringVar(value=DEFAULT_FOLDER)
+        os.makedirs(GENERATED_DIR, exist_ok=True)
+        cfg = self._load_config()
+        self.lang = cfg.get("lang", "en")
+        saved = cfg.get("last_mod_folder", "")
+        if saved and not os.path.isdir(saved):
+            saved = ""
+        self.mod_folder = ctk.StringVar(
+            value=saved if saved else DEFAULT_FOLDER
+        )
         self.step_vars = {}
-        self.status_var = ctk.StringVar(value="Ready")
+        self.status_var = ctk.StringVar(value=self._tr("status_ready"))
         self.progress_var = ctk.DoubleVar(value=0.0)
         # BF loading animation state (initialized before overlay build)
         self.bf_display_w = 110
@@ -162,6 +532,9 @@ class PortGUI(ctk.CTk):
         self.tween_job = None
         self.pipeline_running = False
         self.music_proc = None
+        self._http_server = None
+        self._server_dir = None
+        self._http_port = 0
 
     # ---------- UI ----------
 
@@ -197,12 +570,12 @@ class PortGUI(ctk.CTk):
         # Fallback: plain text title
         ctk.CTkLabel(
             header,
-            text=APP_TITLE,
+            text=self._tr("app_title"),
             font=ctk.CTkFont(size=22, weight="bold"),
         ).pack(side="left", padx=(18, 0), pady=14)
         ctk.CTkLabel(
             header,
-            text=APP_SUBTITLE,
+            text=self._tr("app_subtitle"),
             font=ctk.CTkFont(size=13),
             text_color=GRAY,
         ).pack(side="left", padx=(12, 0), pady=14)
@@ -210,6 +583,7 @@ class PortGUI(ctk.CTk):
     def _build_ui(self):
         outer = ctk.CTkFrame(self, fg_color="transparent")
         outer.pack(fill="both", expand=True, padx=18, pady=(16, 0))
+        self._ui_outer = outer
 
         # Scrollable content area: every widget stays reachable on small windows
         self.app_scroll = ctk.CTkScrollableFrame(outer, fg_color="transparent")
@@ -232,13 +606,30 @@ class PortGUI(ctk.CTk):
         )
         self.status_pill.pack(side="right", padx=16, pady=14)
 
+        # Language toggle
+        lang_row = ctk.CTkFrame(header, fg_color="transparent")
+        lang_row.pack(side="right", padx=(0, 8), pady=14)
+        for code in ("en", "es"):
+            active = code == self.lang
+            ctk.CTkButton(
+                lang_row,
+                text=code.upper(),
+                width=42,
+                height=26,
+                border_width=1,
+                fg_color=("#3a8df0", "#2b6cb8") if active else "transparent",
+                text_color="#ffffff" if active else GRAY,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                command=lambda c=code: self._set_lang(c),
+            ).pack(side="left", padx=2)
+
         # --- Mod folder ---
         folder_card = ctk.CTkFrame(self.app_scroll, corner_radius=14)
         folder_card.pack(fill="x", pady=(12, 0))
 
         ctk.CTkLabel(
             folder_card,
-            text="Mod folder",
+            text=self._tr("folder_label"),
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=GRAY,
         ).pack(anchor="w", padx=16, pady=(12, 4))
@@ -250,20 +641,39 @@ class PortGUI(ctk.CTk):
         self.folder_entry.pack(side="left", fill="x", expand=True)
 
         ctk.CTkButton(
-            row, text="Browse...", width=110, command=self._browse_folder
+            row, text=self._tr("browse"), width=110, command=self._browse_folder
+        ).pack(side="left", padx=(8, 0))
+
+        ctk.CTkButton(
+            row, text=self._tr("check_mod"), width=110, command=self._check_mod
         ).pack(side="left", padx=(8, 0))
 
         ctk.CTkLabel(
             folder_card,
-            text="Mod root folder (pack.png). Missing toolkit files are auto-staged on Run.",
+            text=self._tr("folder_hint"),
             font=ctk.CTkFont(size=11),
             text_color=GRAY,
         ).pack(anchor="w", padx=16, pady=(0, 12))
 
+        # --- Port readiness (live analysis of the selected mod) ---
+        readiness_card = ctk.CTkFrame(self.app_scroll, corner_radius=14)
+        readiness_card.pack(fill="x", pady=(12, 0))
+
+        ctk.CTkLabel(
+            readiness_card,
+            text=self._tr("rdy_title"),
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=GRAY,
+        ).pack(anchor="w", padx=16, pady=(12, 4))
+
+        self.readiness_grid = ctk.CTkFrame(readiness_card, fg_color="transparent")
+        self.readiness_grid.pack(fill="x", padx=16, pady=(0, 12))
+        self._update_readiness()
+
         # --- Steps ---
         self.steps_scroll = ctk.CTkScrollableFrame(
             self.app_scroll,
-            label_text="Steps to run",
+            label_text=self._tr("steps_label"),
             label_font=ctk.CTkFont(size=12, weight="bold"),
             corner_radius=14,
             height=190,
@@ -275,10 +685,10 @@ class PortGUI(ctk.CTk):
 
         sel_row = ctk.CTkFrame(self.app_scroll, fg_color="transparent")
         sel_row.pack(fill="x", pady=(2, 0))
-        ctk.CTkButton(sel_row, text="Check all", width=100, height=26,
+        ctk.CTkButton(sel_row, text=self._tr("check_all"), width=100, height=26,
                       fg_color="transparent", border_width=1,
                       command=self._check_all).pack(side="right")
-        ctk.CTkButton(sel_row, text="Uncheck all", width=100, height=26,
+        ctk.CTkButton(sel_row, text=self._tr("uncheck_all"), width=100, height=26,
                       fg_color="transparent", border_width=1,
                       command=self._uncheck_all).pack(side="right", padx=(0, 8))
 
@@ -288,7 +698,7 @@ class PortGUI(ctk.CTk):
 
         ctk.CTkLabel(
             log_card,
-            text="Log",
+            text=self._tr("log_label"),
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=GRAY,
         ).pack(anchor="w", padx=16, pady=(12, 4))
@@ -317,17 +727,42 @@ class PortGUI(ctk.CTk):
                                       text_color=GRAY)
         self.pct_label.pack(side="left", padx=(0, 16))
 
-        self.open_btn = ctk.CTkButton(bottom, text="Open folder", width=120,
+        self.assets_btn = ctk.CTkButton(bottom, text=self._tr("assets_preview"), width=90,
+                                        fg_color="transparent", border_width=1,
+                                        command=self._preview_assets)
+        self.assets_btn.pack(side="right", padx=(8, 0))
+
+        self.save_log_btn = ctk.CTkButton(bottom, text=self._tr("save_log"), width=100,
+                                          fg_color="transparent", border_width=1,
+                                          command=self._save_log)
+        self.save_log_btn.pack(side="right", padx=(8, 0))
+
+        self.open_btn = ctk.CTkButton(bottom, text=self._tr("open_folder"), width=120,
                                       fg_color="transparent", border_width=1,
                                       state="disabled", command=self._open_folder)
         self.open_btn.pack(side="right", padx=(8, 0))
 
-        self.cancel_btn = ctk.CTkButton(bottom, text="Cancel", width=110,
+        self.turbowarp_btn = ctk.CTkButton(bottom, text=self._tr("open_turbowarp"), width=150,
+                                           fg_color="transparent", border_width=1,
+                                           state="disabled",
+                                           command=self._open_turbowarp)
+        self.turbowarp_btn.pack(side="right", padx=(8, 0))
+
+        self.cancel_btn = ctk.CTkButton(bottom, text=self._tr("cancel"), width=110,
                                         fg_color=RED, hover_color="#b84545",
                                         state="disabled", command=self._request_cancel)
         self.cancel_btn.pack(side="right", padx=(8, 0))
 
-        self.run_btn = ctk.CTkButton(bottom, text="▶  Run", width=130,
+        self.ffmpeg_btn = ctk.CTkButton(bottom, text=self._tr("ffmpeg_missing"), width=150,
+                                        fg_color=YELLOW, hover_color="#c99f3a",
+                                        text_color="#1b1f27",
+                                        command=self._show_ffmpeg_help)
+        if self._ffmpeg_ok:
+            self.ffmpeg_btn.pack_forget()
+        else:
+            self.ffmpeg_btn.pack(side="right", padx=(8, 0))
+
+        self.run_btn = ctk.CTkButton(bottom, text=self._tr("run"), width=130,
                                      fg_color=GREEN, hover_color="#25885e",
                                      font=ctk.CTkFont(size=14, weight="bold"),
                                      command=self._start_pipeline)
@@ -362,7 +797,7 @@ class PortGUI(ctk.CTk):
 
         self.overlay_cancel = ctk.CTkButton(
             self.overlay,
-            text="✖ Cancel",
+            text=self._tr("cancel_x"),
             width=90,
             height=30,
             fg_color="#222222",
@@ -428,7 +863,7 @@ class PortGUI(ctk.CTk):
         self._start_bf_anim()
 
         self.log_win = ctk.CTkToplevel(self)
-        self.log_win.title("Psych To Basic — Log")
+        self.log_win.title(self._tr("app_log_title"))
         self.log_win.geometry("720x520")
         self.log_win.minsize(480, 320)
         self.log_win.configure(fg_color="#111111")
@@ -472,8 +907,8 @@ class PortGUI(ctk.CTk):
             staged.append(name)
 
         # Blank .sb3 template: only when the mod folder has none at all
-        if not glob.glob(os.path.join(folder, "*.sb3")):
-            blanks = glob.glob(os.path.join(DEFAULT_FOLDER, "*.sb3"))
+        if not _safe_glob(folder, "*.sb3"):
+            blanks = _safe_glob(DEFAULT_FOLDER, "*.sb3")
             if blanks:
                 dest = os.path.join(folder, os.path.basename(blanks[0]))
                 if not os.path.exists(dest):
@@ -486,7 +921,8 @@ class PortGUI(ctk.CTk):
             widget.destroy()
         self.step_vars.clear()
 
-        folder = self.mod_folder.get()
+        folder = self._resolve_mod_root(self.mod_folder.get())[0] \
+            or self.mod_folder.get().strip()
         found = 0
 
         for i, script in enumerate(PREREQUISITE_SCRIPTS):
@@ -497,7 +933,7 @@ class PortGUI(ctk.CTk):
 
             cb = ctk.CTkCheckBox(
                 self.step_container,
-                text=script if exists else f"{script}  (auto)",
+                text=script if exists else f"{script}  {self._tr('auto_tag')}",
                 variable=var,
                 font=ctk.CTkFont(size=13),
                 checkbox_width=20,
@@ -511,7 +947,7 @@ class PortGUI(ctk.CTk):
         self.build_var = ctk.BooleanVar(value=True)
         build_cb = ctk.CTkCheckBox(
             self.step_container,
-            text="Build Scratch project (.sb3)",
+            text=self._tr("build_step"),
             variable=self.build_var,
             font=ctk.CTkFont(size=13, weight="bold"),
             checkbox_width=20,
@@ -522,7 +958,7 @@ class PortGUI(ctk.CTk):
         self.build_var_check = build_cb
 
         if found == 0:
-            self.log("No prerequisite scripts yet — they will be auto-staged from the tool folder on Run.", "warn")
+            self.log(self._tr("no_prereq_warn"), "warn")
 
     def _check_all(self):
         for var in self.step_vars.values():
@@ -536,10 +972,38 @@ class PortGUI(ctk.CTk):
 
     # ---------- Events ----------
 
+    def _save_log(self):
+        if not self.log_buffer:
+            messagebox.showinfo(
+                self._tr("save_log_title"), self._tr("save_log_empty")
+            )
+            return
+        path = filedialog.asksaveasfilename(
+            title=self._tr("save_log_title"),
+            defaultextension=".txt",
+            initialfile="psychtobasic_log.txt",
+            initialdir=GENERATED_DIR,
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(line for line, _ in self.log_buffer) + "\n")
+        except OSError as exc:
+            messagebox.showerror(self._tr("save_log_title"), str(exc))
+            return
+        self.log(f"Log saved: {path}", "step")
+
+    def _schedule_readiness(self, *_):
+        if self._readiness_job:
+            self.after_cancel(self._readiness_job)
+        self._readiness_job = self.after(250, self._update_readiness)
+
     def _browse_folder(self):
         chosen = filedialog.askdirectory(initialdir=self.mod_folder.get())
         if chosen:
             self.mod_folder.set(chosen)
+            self._save_config(chosen)
             self._refresh_steps()
 
     def _open_folder(self):
@@ -552,12 +1016,13 @@ class PortGUI(ctk.CTk):
             else:
                 subprocess.Popen(["xdg-open", folder])
         except Exception as exc:
-            messagebox.showerror("Open folder", str(exc))
+            messagebox.showerror(self._tr("open_folder"), str(exc))
 
     # ---------- Logging (thread-safe via queue) ----------
 
     def log(self, line, kind="normal"):
         self.log_queue.put((str(line), kind))
+        self.log_buffer.append((str(line), kind))
 
     def _drain_queue(self):
         try:
@@ -636,20 +1101,207 @@ class PortGUI(ctk.CTk):
         self.run_btn.configure(state=state)
         self.cancel_btn.configure(state="normal" if running else "disabled")
         self.open_btn.configure(state="normal" if not running else "disabled")
+        self.turbowarp_btn.configure(state="normal" if not running else "disabled")
+
+    # ---------- Mod analysis ----------
+
+    def _resolve_mod_root(self, folder):
+        """Find the actual mod root.
+
+        Accepted: the folder itself when it has pack.png, or a folder with
+        exactly ONE child that has pack.png (e.g. the project root holding
+        one mod). Returns (root_path, note) or (None, reason).
+        """
+        folder = (folder or "").strip()
+        if os.path.isdir(folder) and os.path.exists(
+            os.path.join(folder, "pack.png")
+        ):
+            return folder, ""
+        if os.path.isdir(folder):
+            candidates = [
+                os.path.join(folder, name)
+                for name in os.listdir(folder)
+                if os.path.isdir(os.path.join(folder, name))
+                and os.path.exists(os.path.join(folder, name, "pack.png"))
+            ]
+            if len(candidates) == 1:
+                return candidates[0], os.path.basename(candidates[0])
+            if len(candidates) > 1:
+                return None, "multiple mods inside — select the mod folder itself"
+        return None, "no pack.png here or one level below"
+
+    def _scan_mod(self, root):
+        """Count every resource the port pipeline consumes (old + new layouts)."""
+
+        def collect(dirpath, exts, recursive=False):
+            if not os.path.isdir(dirpath):
+                return []
+            matches = []
+            for dirpath2, _dirs, files in os.walk(dirpath):
+                for f in files:
+                    if f.lower().endswith(exts):
+                        matches.append(os.path.join(dirpath2, f))
+                if not recursive:
+                    break
+            return matches
+
+        def charts(dirpath):
+            if not os.path.isdir(dirpath):
+                return []
+            out = []
+            excluded = ("metadata", "dialog", "events")
+
+            def clean(paths):
+                return [
+                    f for f in paths
+                    if not any(x in os.path.basename(f).lower() for x in excluded)
+                ]
+
+            # Old layout: each song lives as data/<song>/<chart>.json
+            category_dirs = {
+                "characters", "songs", "weeks", "stages", "dialogs",
+                "images", "backgrounds", "fonts", "splashes", "menu",
+            }
+            for entry in os.scandir(dirpath):
+                if not entry.is_dir() or entry.name.lower() in category_dirs:
+                    continue
+                out.extend(clean(collect(entry.path, (".json",))))
+            # Root-level chart jsons can live directly in data/
+            out.extend(charts_root(dirpath))
+            return out
+
+        def charts_root(dirpath):
+            if not os.path.isdir(dirpath):
+                return []
+            out = []
+            for f in os.listdir(dirpath):
+                if not f.lower().endswith(".json"):
+                    continue
+                if any(x in f.lower() for x in ("metadata", "dialog", "events")):
+                    continue
+                out.append(os.path.join(dirpath, f))
+            return out
+
+        def clean(paths):
+            return [
+                f for f in paths
+                if not any(
+                    x in os.path.basename(f).lower()
+                    for x in ("metadata", "dialog", "events")
+                )
+            ]
+
+        scan = {
+            "pack": os.path.exists(os.path.join(root, "pack.png")),
+            "weeks": collect(os.path.join(root, "weeks"), (".json",))
+                     + collect(os.path.join(root, "data", "weeks"), (".json",)),
+            "chars": collect(os.path.join(root, "characters"), (".json",))
+                     + collect(os.path.join(root, "data", "characters"), (".json",), recursive=True),
+            "charts": charts(os.path.join(root, "data"))
+                      + clean(collect(os.path.join(root, "data", "songs"), (".json",), recursive=True)),
+            "audio": collect(os.path.join(root, "songs"), (".ogg", ".mp3", ".wav"), recursive=True)
+                     + collect(os.path.join(root, "data", "songs"), (".ogg", ".mp3", ".wav"), recursive=True),
+            "stages": collect(os.path.join(root, "stages"), (".json",))
+                      + collect(os.path.join(root, "data", "stages"), (".json",)),
+            "icons": collect(os.path.join(root, "characters"), (".png",))
+                     + collect(os.path.join(root, "data", "characters"), (".png",), recursive=True),
+            "notes": collect(os.path.join(root, "custom_notetypes"), (".json",)),
+            "noteskins": collect(os.path.join(root, "noteskins"), (".png", ".json"), recursive=True),
+            "template": _safe_glob(root, "*.sb3"),
+        }
+        return scan
+
+    def _update_readiness(self):
+        self._readiness_job = None
+        card = getattr(self, "readiness_grid", None)
+        if card is None or not card.winfo_exists():
+            return
+        for w in card.winfo_children():
+            w.destroy()
+
+        folder = self.mod_folder.get().strip()
+        root, note = self._resolve_mod_root(folder)
+        if root is None:
+            ctk.CTkLabel(
+                card,
+                text=f"{self._tr('rdy_no_mod')} — {note}",
+                text_color=RED,
+                font=ctk.CTkFont(size=12, weight="bold"),
+            ).grid(row=0, column=0, sticky="w", padx=(0, 24), pady=2)
+            return
+
+        scan = self._scan_mod(root)
+        if note:
+            self.log(self._tr("rdy_auto", name=note), "dim")
+
+        rows = [
+            ("rdy_root", root is not None, os.path.basename(root)),
+            ("rdy_weeks", bool(scan["weeks"]), len(scan["weeks"])),
+            ("rdy_chars", bool(scan["chars"]), len(scan["chars"])),
+            ("rdy_charts", bool(scan["charts"]), len(scan["charts"])),
+            ("rdy_audio", bool(scan["audio"]), len(scan["audio"])),
+            ("rdy_stages", bool(scan["stages"]), len(scan["stages"])),
+            ("rdy_icons", bool(scan["icons"]), len(scan["icons"])),
+            ("rdy_notes", bool(scan["notes"]), len(scan["notes"])),
+            ("rdy_noteskins", bool(scan["noteskins"]), len(scan["noteskins"])),
+            ("rdy_template", bool(scan["template"]), 1 if scan["template"] else 0),
+            ("rdy_ffmpeg", self._check_ffmpeg(), None),
+        ]
+
+        for i, (key, ok, count) in enumerate(rows):
+            label = self._tr(key)
+            color = GREEN if ok else RED
+            text = f"{'✓' if ok else '✗'} {label}"
+            if count is not None:
+                text += f": {count}" if ok else " — 0"
+            ctk.CTkLabel(
+                card,
+                text=text,
+                text_color=color,
+                font=ctk.CTkFont(size=12, weight="bold" if key == "rdy_root" else "normal"),
+            ).grid(row=i // 2, column=i % 2, sticky="w", padx=(0, 24), pady=2)
+
+        missing = [
+            self._tr(key)
+            for key, ok, _ in rows
+            if not ok and key not in ("rdy_root", "rdy_template", "rdy_ffmpeg")
+        ]
+        verdict_key = "rdy_verdict_yes"
+        if missing:
+            verdict_key = "rdy_verdict_no" if not scan["chars"] or not scan["weeks"] or not scan["charts"] else "rdy_verdict_partial"
+        verdict = self._tr(verdict_key, missing=", ".join(missing))
+        ctk.CTkLabel(
+            card,
+            text=verdict,
+            text_color=(GREEN, "#4ade80") if verdict_key == "rdy_verdict_yes" else YELLOW,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).grid(row=(len(rows) + 1) // 2, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
     # ---------- Pipeline ----------
 
     def _start_pipeline(self):
-        folder = self.mod_folder.get().strip()
-        if not os.path.isdir(folder):
-            messagebox.showerror("Error", f"Folder does not exist:\n{folder}")
+        folder_raw = self.mod_folder.get().strip()
+        root, note = self._resolve_mod_root(folder_raw)
+        if root is None:
+            messagebox.showerror(
+                self._tr("err_title"),
+                f"{self._tr('rdy_no_mod')} — {note}",
+            )
             return
+        folder = root
+        if note:
+            self.log(self._tr("rdy_auto", name=note), "dim")
+
+        self._save_config(folder)
 
         staged = self._stage_toolkit(folder)
         if staged:
             self.log(
-                f"Staged {len(staged)} toolkit file(s) into mod folder: "
-                + ", ".join(staged),
+                self._tr(
+                    "staged_log",
+                    n=len(staged),
+                    names=", ".join(staged),
+                ),
                 "step",
             )
 
@@ -658,16 +1310,17 @@ class PortGUI(ctk.CTk):
             steps.append("BUILD_SB3")
 
         if not steps:
-            messagebox.showwarning("No steps", "Select at least one step to run.")
+            messagebox.showwarning(
+                self._tr("no_steps_title"), self._tr("no_steps_body")
+            )
             return
 
         if "BUILD_SB3" in steps:
-            sb3 = glob.glob(os.path.join(folder, "*.sb3"))
+            sb3 = _safe_glob(folder, "*.sb3")
             if not sb3:
                 answer = messagebox.askyesno(
-                    "No .sb3 found",
-                    "No .sb3 project was found in the selected folder.\n"
-                    "The build step will produce no output.\n\nContinue anyway?",
+                    self._tr("no_sb3_title"),
+                    self._tr("no_sb3_body"),
                 )
                 if not answer:
                     return
@@ -678,7 +1331,7 @@ class PortGUI(ctk.CTk):
         self._apply_progress(0.0)
         self.cancel_requested = False
         self._set_running(True)
-        self._set_status("Running", GREEN)
+        self._set_status(self._tr("status_running"), GREEN)
         self._enter_loading()
         self._start_tween()
 
@@ -692,20 +1345,171 @@ class PortGUI(ctk.CTk):
         )
         self.worker.start()
 
+    def _check_mod(self):
+        """Scan the selected mod folder and report health in the log."""
+        folder_raw = self.mod_folder.get().strip()
+        folder, note = self._resolve_mod_root(folder_raw)
+        if folder is None:
+            messagebox.showerror(
+                self._tr("check_mod_title"),
+                f"{self._tr('rdy_no_mod')} — {note}",
+            )
+            return
+
+        data = os.path.join(folder, "data")
+
+        def report(label, ok, detail=""):
+            kind = "ok" if ok else "warn"
+            tag = "OK  " if ok else "MISS"
+            text = f"  [{tag}] {label}"
+            if detail:
+                text += f" — {detail}"
+            self.log(text, kind)
+
+        self.log("=" * 60, "dim")
+        self.log(self._tr("mod_check_header", folder=folder), "dim")
+
+        report(self._tr("ck_pack"), os.path.exists(os.path.join(folder, "pack.png")))
+
+        for key, sub in (("ck_chars", "characters"), ("ck_songs", "songs"), ("ck_weeks", "weeks")):
+            d = os.path.join(data, sub)
+            jsons = _safe_glob(d, "*.json") if os.path.isdir(d) else []
+            report(self._tr(key), len(jsons) > 0, self._tr("ck_found", n=len(jsons)))
+
+        missing = [
+            n for n in PREREQUISITE_SCRIPTS + ["port.py"]
+            if not os.path.exists(os.path.join(folder, n))
+        ]
+        report(self._tr("ck_toolkit"), not missing,
+               self._tr("ck_missing", list=", ".join(missing)) if missing
+               else self._tr("ck_present"))
+
+        sb3 = _safe_glob(folder, "*.sb3")
+        report(self._tr("ck_sb3"), bool(sb3),
+               os.path.basename(sb3[0]) if sb3 else "")
+
+        songs_data = os.path.join(data, "songs")
+        audios = (_safe_glob(songs_data, "*", recursive=True)
+                  if os.path.isdir(songs_data) else [])
+        audio_count = sum(
+            1 for f in audios if f.lower().endswith((".ogg", ".mp3", ".wav"))
+        )
+        report(self._tr("ck_audio"), audio_count > 0,
+               self._tr("ck_found", n=audio_count))
+
+        chars_data = os.path.join(data, "characters")
+        icons = (_safe_glob(chars_data, "*.png", recursive=True)
+                 if os.path.isdir(chars_data) else [])
+        report(self._tr("ck_icons"), len(icons) > 0,
+               self._tr("ck_found", n=len(icons)))
+
+        report(self._tr("ck_ffmpeg"), self._check_ffmpeg())
+
+        self.log(self._tr("mod_check_done"), "step")
+
+    def _ensure_local_server(self, directory):
+        """Serve `directory` on 127.0.0.1 (CORS enabled); reuse an existing one."""
+        if self._http_server is not None and self._server_dir == directory:
+            return self._http_port
+        if self._http_server is not None:
+            daemon = threading.Thread(
+                target=self._http_server.shutdown, daemon=True
+            )
+            daemon.start()
+            self._http_server = None
+        try:
+            handler = partial(_CORSHandler, directory=directory)
+            self._http_server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        except OSError as exc:
+            self.log(f"Local server failed: {exc}", "warn")
+            return None
+        self._server_dir = directory
+        self._http_port = self._http_server.server_address[1]
+        threading.Thread(
+            target=self._http_server.serve_forever, daemon=True
+        ).start()
+        self.log(f"Local server on http://127.0.0.1:{self._http_port}", "dim")
+        return self._http_port
+
+    def _open_turbowarp(self):
+        """Load the built .sb3 in TurboWarp through a local (CORS) file server.
+
+        TurboWarp can only link to projects that exist at a URL, so we serve
+        the file locally and point ?project= at 127.0.0.1.
+        """
+        files = sorted(_safe_glob(GENERATED_DIR, "built_*.sb3"))
+        if not files:
+            root = self._resolve_mod_root(self.mod_folder.get())[0] \
+                or self.mod_folder.get().strip()
+            files = sorted(_safe_glob(root, "built_*.sb3"))
+        if not files:
+            messagebox.showinfo(
+                self._tr("turbowarp_title"),
+                self._tr("turbowarp_no_build"),
+            )
+            return
+        directory = os.path.dirname(files[-1])
+        port = self._ensure_local_server(directory)
+        if not port:
+            messagebox.showerror(
+                self._tr("turbowarp_title"),
+                self._tr("turbowarp_server_fail"),
+            )
+            return
+        name = os.path.basename(files[-1])
+        url = f"https://turbowarp.org/editor?project=http://127.0.0.1:{port}/{name}"
+        self.log(f"Opening TurboWarp with local project: {url}", "step")
+        webbrowser.open(url)
+
+    def _collect_outputs(self, folder):
+        """Copy build artifacts into the local generated/ folder and verify them."""
+        os.makedirs(GENERATED_DIR, exist_ok=True)
+        for src in _safe_glob(folder, "built_*.sb3"):
+            try:
+                dst = os.path.join(GENERATED_DIR, os.path.basename(src))
+                shutil.copy2(src, dst)
+                self.log(f"Collected {os.path.basename(src)} -> generated/", "step")
+            except OSError as exc:
+                self.log(f"Collect failed: {exc}", "warn")
+                continue
+            try:
+                with zipfile.ZipFile(dst) as zf:
+                    bad = zf.testzip()
+                    entries = len(zf.namelist())
+                    size = os.path.getsize(dst)
+                if bad is None:
+                    self.log(
+                        f"Verify OK: {os.path.basename(dst)} "
+                        f"({size / 1e6:.1f} MB, {entries} files)",
+                        "ok",
+                    )
+                else:
+                    self.log(
+                        f"Verify WARNING: corrupt entry {bad!r} in "
+                        f"{os.path.basename(dst)}",
+                        "warn",
+                    )
+            except zipfile.BadZipFile:
+                self.log(
+                    f"Verify ERROR: {os.path.basename(dst)} is not a valid "
+                    ".sb3 (zip) file.",
+                    "error",
+                )
+
     def _run_pipeline(self, folder, steps):
         try:
             for idx, step in enumerate(steps, start=1):
                 if self.cancel_requested:
-                    self.log("--- Pipeline cancelled by user ---", "warn")
-                    self._set_status("Cancelled", YELLOW)
+                    self.log(self._tr("pipeline_cancelled"), "warn")
+                    self._set_status(self._tr("status_cancelled"), YELLOW)
                     self._finish(None)
                     return
 
                 if step == "BUILD_SB3":
-                    label = "Building Scratch project (.sb3)"
+                    label = self._tr("build_step")
                     command = [sys.executable, "-c", "import port; port.process_sb3()"]
                 else:
-                    label = f"Running {step}"
+                    label = self._tr("run_step", step=step)
                     command = [sys.executable, step]
 
                 self._set_status(f"[{idx}/{len(steps)}] {label}")
@@ -715,27 +1519,31 @@ class PortGUI(ctk.CTk):
                 code = self._run_command(folder, command)
 
                 if self.cancel_requested:
-                    self.log("--- Pipeline cancelled by user ---", "warn")
-                    self._set_status("Cancelled", YELLOW)
+                    self.log(self._tr("pipeline_cancelled"), "warn")
+                    self._set_status(self._tr("status_cancelled"), YELLOW)
                     self._finish(None)
                     return
 
                 if code != 0:
-                    self.log(f"\n!!! STEP FAILED: '{step}' (exit code {code})", "error")
+                    self.log(self._tr("step_failed", step=step, code=code), "error")
                     self._set_progress(idx, len(steps))
-                    self._set_status("Failed", RED)
-                    self._finish(False, f"Step '{step}' failed (exit code {code}).")
+                    self._set_status(self._tr("status_failed"), RED)
+                    self._finish(
+                        False,
+                        self._tr("finish_failed_step", step=step, code=code),
+                    )
                     return
 
                 self._set_progress(idx, len(steps))
 
+            self._collect_outputs(folder)
             self.log("\n--- Pipeline finished successfully ---", "ok")
-            self._set_status("Done", GREEN)
-            self._finish(True, "Pipeline finished successfully.")
+            self._set_status(self._tr("status_done"), GREEN)
+            self._finish(True, self._tr("finish_success"))
         except Exception as exc:
             self.log(f"\n!!! ERROR: {exc}", "error")
-            self._set_status("Error", RED)
-            self._finish(False, f"Internal error: {exc}", is_error=True)
+            self._set_status(self._tr("status_error"), RED)
+            self._finish(False, self._tr("internal_error", exc=exc), is_error=True)
 
     def _run_command(self, folder, command):
         """Run one command, streaming its output into the log. Returns exit code."""
@@ -774,7 +1582,7 @@ class PortGUI(ctk.CTk):
 
     def _request_cancel(self):
         self.cancel_requested = True
-        self._set_status("Cancelling...")
+        self._set_status(self._tr("status_cancelling"))
 
     def _finish(self, ok, message=None, is_error=False):
         def show():
@@ -783,9 +1591,9 @@ class PortGUI(ctk.CTk):
             if ok is None:
                 return
             if is_error:
-                messagebox.showerror("Error", message)
+                messagebox.showerror(self._tr("err_title"), message)
             elif ok:
-                messagebox.showinfo("Done", message)
+                messagebox.showinfo(self._tr("done_title"), message)
 
         self.after(0, show)
 

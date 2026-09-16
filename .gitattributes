@@ -1,0 +1,5 @@
+# Windows batch files MUST stay CRLF or cmd.exe breaks parenthesized blocks
+*.bat text eol=crlf
+
+# Shell launchers stay LF
+*.sh text eol=lf

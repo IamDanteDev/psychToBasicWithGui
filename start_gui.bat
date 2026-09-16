@@ -27,4 +27,4 @@ if not exist "venv\Scripts\python.exe" (
 echo [PsychtoBasic] Starting GUI...
 "venv\Scripts\python.exe" gui.py
 if errorlevel 1 pause
-endlocal
+endlocal

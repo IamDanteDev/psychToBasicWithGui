@@ -23,6 +23,8 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from PIL import Image, ImageTk
 
+import engine_profiles
+
 # Same order as port.py
 PREREQUISITE_SCRIPTS = [
     "weeks.py",
@@ -108,6 +110,15 @@ STRINGS = {
                        "Install it, then close and reopen this app:\n\n    {cmd}",
         "ffmpeg_warn_log": "FFmpeg or ffprobe not found — OGG→MP3 conversion will fail. "
                            "Click the '{btn}' button for install instructions.",
+        "deps_missing": "⚠ Missing deps",
+        "deps_title": "Missing dependencies",
+        "deps_warn_log": "Missing dependencies: {list}. "
+                         "Click '{btn}' for install commands.",
+        "deps_body": "These dependencies are missing:\n\n{list}\n\n"
+                     "Run each command with the Python you use for this app, "
+                     "then close and reopen it.",
+        "deps_ok_body": "All dependencies are present.\n\n"
+                        "If a step still fails, check the log for details.",
         "no_prereq_warn": "No prerequisite scripts yet — they will be auto-staged from the tool folder on Run.",
         "staged_log": "Staged {n} toolkit file(s) into mod folder: {names}",
         "build_step": "Building Scratch project (.sb3)",
@@ -147,6 +158,17 @@ STRINGS = {
         "rdy_verdict_yes": "Porteable: YES — all core pieces present",
         "rdy_verdict_no": "Porteable: NO — missing {missing}",
         "rdy_verdict_partial": "Porteable: PARTIAL — missing {missing}",
+        "template_label": "Base engine (.sb3)",
+        "template_hint": "Which Scratch template the build starts from. Drop extra .sb3 files next to this app and they show up here.",
+        "template_none": "No .sb3 engine templates found next to the app.",
+        "template_used": "Engine: {name}",
+        "source_engine_label": "Source engine",
+        "source_engine_hint": "What the mod data was made for. Use \"Psych Engine\" when the mod folder is already a Psych mod; pick another engine to convert it automatically into Psych layout.",
+        "source_engine_none": "No source engine profiles found (engines/<id>/engine.json missing).",
+        "source_engine_used": "Source: {name}",
+        "source_engine_root": "Engine folder",
+        "source_engine_root_hint": "Folder containing the engine's assets (assets/data, assets/songs...). Empty uses engines/<id> next to this app.",
+        "source_engine_browse": "Browse",
     },
     "es": {
         "app_title": "Psych To Basic",
@@ -198,6 +220,15 @@ STRINGS = {
                        "Instálalo y luego cierra y reabre la app:\n\n    {cmd}",
         "ffmpeg_warn_log": "No se encontró FFmpeg o ffprobe — la conversión OGG→MP3 fallará. "
                            "Haz clic en el botón '{btn}' para ver las instrucciones.",
+        "deps_missing": "⚠ Faltan dependencias",
+        "deps_title": "Faltan dependencias",
+        "deps_warn_log": "Faltan dependencias: {list}. "
+                         "Haz clic en '{btn}' para ver cómo instalarlas.",
+        "deps_body": "Faltan estas dependencias:\n\n{list}\n\n"
+                     "Ejecuta cada comando con el Python que usas para la app "
+                     "y luego ciérrala y ábrela de nuevo.",
+        "deps_ok_body": "Todas las dependencias están presentes.\n\n"
+                        "Si un paso sigue fallando, revisa el registro.",
         "no_prereq_warn": "Aún no hay scripts del toolkit — se copiarán solos desde la carpeta de la herramienta al ejecutar.",
         "staged_log": "Se copiaron {n} archivo(s) del toolkit a la carpeta del mod: {names}",
         "build_step": "Construyendo proyecto Scratch (.sb3)",
@@ -237,6 +268,17 @@ STRINGS = {
         "rdy_verdict_yes": "Porteable: SÍ — todos los componentes clave presentes",
         "rdy_verdict_no": "Porteable: NO — falta {missing}",
         "rdy_verdict_partial": "Porteable: PARCIAL — falta {missing}",
+        "template_label": "Motor base (.sb3)",
+        "template_hint": "Desde qué plantilla Scratch parte la compilación. Agregue archivos .sb3 junto a la app y aparecerán aquí.",
+        "template_none": "No se encontraron plantillas de motor .sb3 junto a la app.",
+        "template_used": "Motor: {name}",
+        "source_engine_label": "Motor de origen",
+        "source_engine_hint": "Para qué motor se hizo el mod. Use \"Psych Engine\" cuando la carpeta del mod ya es un mod de Psych; elija otro motor para convertirlo automáticamente a layout Psych.",
+        "source_engine_none": "No se encontraron perfiles de motor de origen (falta engines/<id>/engine.json).",
+        "source_engine_used": "Origen: {name}",
+        "source_engine_root": "Carpeta del motor",
+        "source_engine_root_hint": "Carpeta con los assets del motor (assets/data, assets/songs...). Vacía usa engines/<id> junto a esta app.",
+        "source_engine_browse": "Examinar",
     },
 }
 
@@ -283,7 +325,8 @@ class PortGUI(ctk.CTk):
         self.log_buffer = []
         self._readiness_job = None
 
-        self._ffmpeg_ok = self._check_ffmpeg()
+        self.deps = self._check_dependencies()
+        self.deps_ok = all(ok for _name, ok, _fix in self.deps)
 
         self._build_ui()
         self._build_overlay()
@@ -292,9 +335,16 @@ class PortGUI(ctk.CTk):
 
         self.after(100, self._drain_queue)
         self.mod_folder.trace_add("write", self._schedule_readiness)
-        if not self._ffmpeg_ok:
+        if not self.deps_ok:
+            names = ", ".join(
+                name for name, ok, _fix in self.deps if not ok
+            )
             self.log(
-                self._tr("ffmpeg_warn_log", btn=self._tr("ffmpeg_missing")),
+                self._tr(
+                    "deps_warn_log",
+                    list=names,
+                    btn=self._tr("deps_missing"),
+                ),
                 "warn",
             )
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -332,10 +382,58 @@ class PortGUI(ctk.CTk):
             data = {"last_mod_folder": folder}
             if getattr(self, "lang", "en"):
                 data["lang"] = self.lang
+            if getattr(self, "engine_var", None):
+                data["engine"] = self.engine_var.get()
+            if getattr(self, "source_engine_var", None):
+                data["source_engine"] = self.source_engine_var.get()
+            if getattr(self, "source_engine_root_var", None):
+                data["source_engine_root"] = self.source_engine_root_var.get()
             with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2)
         except OSError as exc:
             self.log(f"Config save failed: {exc}", "warn")
+
+    def _discover_engines(self):
+        """Base engine templates (.sb3) shipped next to the app.
+
+        built_* files are outputs, never engines.
+        """
+        return sorted(
+            os.path.basename(f)
+            for f in _safe_glob(DEFAULT_FOLDER, "*.sb3")
+            if not os.path.basename(f).lower().startswith("built_")
+        )
+
+    def _on_engine_change(self, _name=None):
+        self._save_config(self.mod_folder.get().strip() or DEFAULT_FOLDER)
+
+    def _on_source_engine_change(self, _name=None):
+        self._save_config(self.mod_folder.get().strip() or DEFAULT_FOLDER)
+
+    def _pick_source_engine_root(self):
+        initial = self.source_engine_root_var.get().strip() or os.getcwd()
+        chosen = filedialog.askdirectory(
+            title=self._tr("source_engine_root"), initialdir=initial
+        )
+        if chosen:
+            self.source_engine_root_var.set(chosen)
+            self._save_config(self.mod_folder.get().strip() or DEFAULT_FOLDER)
+            self.log(f"Source engine folder: {chosen}", "step")
+
+    def _importable(self, name):
+        """True when the Python module can be imported in this interpreter."""
+        try:
+            __import__(name)
+            return True
+        except Exception:
+            return False
+
+    def _ffmpeg_install_cmd(self):
+        if sys.platform.startswith("win"):
+            return "winget install Gyan.FFmpeg"
+        if sys.platform == "darwin":
+            return "brew install ffmpeg"
+        return "sudo apt install ffmpeg"
 
     def _check_ffmpeg(self):
         """pydub needs both ffmpeg and ffprobe on PATH for OGG -> MP3."""
@@ -344,16 +442,37 @@ class PortGUI(ctk.CTk):
             and shutil.which("ffprobe") is not None
         )
 
-    def _show_ffmpeg_help(self):
-        if sys.platform.startswith("win"):
-            cmd = "winget install Gyan.FFmpeg"
-        elif sys.platform == "darwin":
-            cmd = "brew install ffmpeg"
-        else:
-            cmd = "sudo apt install ffmpeg"
+    def _check_dependencies(self):
+        """Probe every runtime dependency (Python packages + system tools).
+
+        Returns a list of (display name, present, install command) tuples so
+        the UI can report exactly what is missing and how to fix it.
+        """
+        pip = "python -m pip install "
+        ffmpeg_cmd = self._ffmpeg_install_cmd()
+        return [
+            ("customtkinter", self._importable("customtkinter"), pip + "customtkinter"),
+            ("Pillow (PIL)", self._importable("PIL"), pip + "Pillow"),
+            ("pydub", self._importable("pydub"), pip + "pydub"),
+            ("audioop", self._importable("audioop"), pip + "audioop-lts"),
+            ("ffmpeg", shutil.which("ffmpeg") is not None, ffmpeg_cmd),
+            ("ffprobe", shutil.which("ffprobe") is not None, ffmpeg_cmd),
+        ]
+
+    def _show_deps_help(self):
+        missing = [d for d in self.deps if not d[1]]
+        if not missing:
+            messagebox.showinfo(
+                self._tr("deps_title"),
+                self._tr("deps_ok_body"),
+            )
+            return
+        lines = "\n".join(
+            f"• {name}\n      {fix}" for name, _ok, fix in missing
+        )
         messagebox.showinfo(
-            self._tr("ffmpeg_title"),
-            self._tr("ffmpeg_body", cmd=cmd),
+            self._tr("deps_title"),
+            self._tr("deps_body", list=lines),
         )
 
     def _set_lang(self, lang):
@@ -516,6 +635,25 @@ class PortGUI(ctk.CTk):
         self.mod_folder = ctk.StringVar(
             value=saved if saved else DEFAULT_FOLDER
         )
+
+        # Discover engine templates (.sb3) next to the app
+        self.engines = self._discover_engines()
+        engine = cfg.get("engine", "")
+        if engine not in self.engines:
+            engine = self.engines[0] if self.engines else ""
+        self.engine_var = ctk.StringVar(value=engine)
+
+        # Source engine profile: what the mod data was made for.
+        self.engine_profiles = engine_profiles.list_engines()
+        profile_ids = [p["id"] for p in self.engine_profiles]
+        source_engine = cfg.get("source_engine", "psych")
+        if source_engine not in profile_ids:
+            source_engine = "psych"
+        self.source_engine_var = ctk.StringVar(value=source_engine)
+        self.source_engine_root_var = ctk.StringVar(
+            value=cfg.get("source_engine_root", "")
+        )
+
         self.step_vars = {}
         self.status_var = ctk.StringVar(value=self._tr("status_ready"))
         self.progress_var = ctk.DoubleVar(value=0.0)
@@ -670,6 +808,99 @@ class PortGUI(ctk.CTk):
         self.readiness_grid.pack(fill="x", padx=16, pady=(0, 12))
         self._update_readiness()
 
+        # --- Source engine (what the mod data was made for) ---
+        source_card = ctk.CTkFrame(self.app_scroll, corner_radius=14)
+        source_card.pack(fill="x", pady=(12, 0))
+
+        ctk.CTkLabel(
+            source_card,
+            text=self._tr("source_engine_label"),
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=GRAY,
+        ).pack(anchor="w", padx=16, pady=(12, 4))
+
+        if self.engine_profiles:
+            row = ctk.CTkFrame(source_card, fg_color="transparent")
+            row.pack(fill="x", padx=16, pady=(0, 6))
+            profile_ids = [p["id"] for p in self.engine_profiles]
+            self.source_engine_menu = ctk.CTkOptionMenu(
+                row,
+                values=profile_ids,
+                variable=self.source_engine_var,
+                command=self._on_source_engine_change,
+            )
+            self.source_engine_menu.pack(side="left")
+
+            root_row = ctk.CTkFrame(source_card, fg_color="transparent")
+            root_row.pack(fill="x", padx=16, pady=(0, 6))
+            ctk.CTkLabel(
+                root_row,
+                text=self._tr("source_engine_root"),
+                font=ctk.CTkFont(size=12),
+            ).pack(side="left")
+            ctk.CTkEntry(
+                root_row,
+                textvariable=self.source_engine_root_var,
+                fg_color="transparent",
+                border_width=0,
+            ).pack(side="left", fill="x", expand=True, padx=(8, 8))
+            ctk.CTkButton(
+                root_row,
+                text=self._tr("source_engine_browse"),
+                width=90,
+                command=self._pick_source_engine_root,
+            ).pack(side="left")
+
+            ctk.CTkLabel(
+                source_card,
+                text=self._tr("source_engine_hint"),
+                font=ctk.CTkFont(size=11),
+                text_color=GRAY,
+            ).pack(anchor="w", padx=16, pady=(0, 12))
+        else:
+            ctk.CTkLabel(
+                source_card,
+                text=self._tr("source_engine_none"),
+                text_color=YELLOW,
+                font=ctk.CTkFont(size=12),
+            ).pack(anchor="w", padx=16, pady=(0, 12))
+
+        # --- Base engine (which .sb3 template the build starts from) ---
+        engine_card = ctk.CTkFrame(self.app_scroll, corner_radius=14)
+        engine_card.pack(fill="x", pady=(12, 0))
+
+        ctk.CTkLabel(
+            engine_card,
+            text=self._tr("template_label"),
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=GRAY,
+        ).pack(anchor="w", padx=16, pady=(12, 4))
+
+        if self.engines:
+            row = ctk.CTkFrame(engine_card, fg_color="transparent")
+            row.pack(fill="x", padx=16, pady=(0, 6))
+            self.engine_menu = ctk.CTkOptionMenu(
+                row,
+                values=self.engines,
+                variable=self.engine_var,
+                command=self._on_engine_change,
+            )
+            self.engine_menu.pack(side="left")
+        else:
+            ctk.CTkLabel(
+                engine_card,
+                text=self._tr("template_none"),
+                text_color=YELLOW,
+                font=ctk.CTkFont(size=12),
+            ).pack(anchor="w", padx=16, pady=(0, 6))
+
+        ctk.CTkLabel(
+            engine_card,
+            text=self._tr("template_hint"),
+            font=ctk.CTkFont(size=11),
+            text_color=GRAY,
+        ).pack(anchor="w", padx=16, pady=(0, 12))
+
         # --- Steps ---
         self.steps_scroll = ctk.CTkScrollableFrame(
             self.app_scroll,
@@ -753,14 +984,14 @@ class PortGUI(ctk.CTk):
                                         state="disabled", command=self._request_cancel)
         self.cancel_btn.pack(side="right", padx=(8, 0))
 
-        self.ffmpeg_btn = ctk.CTkButton(bottom, text=self._tr("ffmpeg_missing"), width=150,
+        self.deps_btn = ctk.CTkButton(bottom, text=self._tr("deps_missing"), width=150,
                                         fg_color=YELLOW, hover_color="#c99f3a",
                                         text_color="#1b1f27",
-                                        command=self._show_ffmpeg_help)
-        if self._ffmpeg_ok:
-            self.ffmpeg_btn.pack_forget()
+                                        command=self._show_deps_help)
+        if self.deps_ok:
+            self.deps_btn.pack_forget()
         else:
-            self.ffmpeg_btn.pack(side="right", padx=(8, 0))
+            self.deps_btn.pack(side="right", padx=(8, 0))
 
         self.run_btn = ctk.CTkButton(bottom, text=self._tr("run"), width=130,
                                      fg_color=GREEN, hover_color="#25885e",
@@ -906,14 +1137,25 @@ class PortGUI(ctk.CTk):
             shutil.copy2(src, dest)
             staged.append(name)
 
-        # Blank .sb3 template: only when the mod folder has none at all
-        if not _safe_glob(folder, "*.sb3"):
-            blanks = _safe_glob(DEFAULT_FOLDER, "*.sb3")
-            if blanks:
-                dest = os.path.join(folder, os.path.basename(blanks[0]))
-                if not os.path.exists(dest):
-                    shutil.copy2(blanks[0], dest)
-                    staged.append(os.path.basename(blanks[0]))
+        # Selected engine template: make sure the mod folder has it by name.
+        # Without a selection (no engines discovered) the build falls back
+        # to its own default discovery.
+        engine_name = (
+            self.engine_var.get()
+            if getattr(self, "engine_var", None) else ""
+        )
+        if engine_name:
+            dest = os.path.join(folder, engine_name)
+            if not os.path.exists(dest):
+                src = os.path.join(DEFAULT_FOLDER, engine_name)
+                if os.path.exists(src):
+                    shutil.copy2(src, dest)
+                    staged.append(engine_name)
+                else:
+                    self.log(
+                        f"Warning: engine template not found: {engine_name}",
+                        "warn",
+                    )
         return staged
 
     def _refresh_steps(self):
@@ -1315,6 +1557,39 @@ class PortGUI(ctk.CTk):
             )
             return
 
+        # Non-Psych source engine: extractors run INSIDE port.py with the
+        # work root as cwd, so only the packaged build step is needed.
+        work_root = None
+        source_profile = None
+        if getattr(self, "source_engine_var", None):
+            source_profile = engine_profiles.get_engine(
+                self.source_engine_var.get()
+            )
+        if source_profile and not engine_profiles.is_psych(source_profile):
+            engine_folder = self.source_engine_root_var.get().strip()
+            if not engine_folder:
+                engine_folder = source_profile.get("folder", "") or os.path.join(
+                    DEFAULT_FOLDER, "engines", source_profile["id"]
+                )
+            if not os.path.isdir(engine_folder):
+                messagebox.showerror(
+                    self._tr("err_title"),
+                    f"Source engine folder not found:\n{engine_folder}",
+                )
+                return
+            work_root = os.path.join(
+                engine_folder, f".engine_work_{source_profile['id']}"
+            )
+            # The work root is (re)built by the adapter when port.py runs;
+            # port.py stages the extractor scripts into it by itself.
+            self.log(
+                f"Source engine '{source_profile['name']}': pipeline runs "
+                f"inside {work_root}",
+                "step",
+            )
+            self.log("Extractor steps run inside port.py for this engine.", "dim")
+            steps = ["BUILD_SB3"]
+
         if "BUILD_SB3" in steps:
             sb3 = _safe_glob(folder, "*.sb3")
             if not sb3:
@@ -1341,7 +1616,7 @@ class PortGUI(ctk.CTk):
         self.log("=" * 60, "dim")
 
         self.worker = threading.Thread(
-            target=self._run_pipeline, args=(folder, steps), daemon=True
+            target=self._run_pipeline, args=(folder, steps, work_root), daemon=True
         )
         self.worker.start()
 
@@ -1496,7 +1771,7 @@ class PortGUI(ctk.CTk):
                     "error",
                 )
 
-    def _run_pipeline(self, folder, steps):
+    def _run_pipeline(self, folder, steps, work_root=None):
         try:
             for idx, step in enumerate(steps, start=1):
                 if self.cancel_requested:
@@ -1507,7 +1782,64 @@ class PortGUI(ctk.CTk):
 
                 if step == "BUILD_SB3":
                     label = self._tr("build_step")
-                    command = [sys.executable, "-c", "import port; port.process_sb3()"]
+                    engine_name = (
+                        self.engine_var.get()
+                        if getattr(self, "engine_var", None) else ""
+                    )
+                    engine_abs = ""
+                    if engine_name:
+                        # Resolve the staged mod-folder copy first, then the
+                        # tool folder next to the app.
+                        for cand in (
+                            os.path.join(folder, engine_name),
+                            os.path.join(DEFAULT_FOLDER, engine_name),
+                        ):
+                            if os.path.isfile(cand):
+                                engine_abs = cand
+                                break
+                    if engine_abs:
+                        self.log(
+                            self._tr(
+                                "template_used",
+                                name=os.path.basename(engine_abs),
+                            ),
+                            "dim",
+                        )
+                        command = [sys.executable, "port.py", "--engine", engine_abs]
+                    else:
+                        command = [sys.executable, "-c", "import port; port.process_sb3()"]
+
+                    if work_root:
+                        source_profile = (
+                            engine_profiles.get_engine(
+                                self.source_engine_var.get()
+                            )
+                            if getattr(self, "source_engine_var", None)
+                            else None
+                        )
+                        self.log(
+                            self._tr(
+                                "source_engine_used",
+                                name=(
+                                    source_profile.get("name", "")
+                                    if source_profile
+                                    else ""
+                                ),
+                            ),
+                            "dim",
+                        )
+                        # port.py normalizes the engine into the work root,
+                        # then runs extractors + .sb3 build in there.
+                        command = [
+                            sys.executable,
+                            "port.py",
+                            "--source-engine",
+                            self.source_engine_var.get(),
+                            "--engine-root",
+                            os.path.dirname(work_root),
+                            "--engine",
+                            engine_abs,
+                        ]
                 else:
                     label = self._tr("run_step", step=step)
                     command = [sys.executable, step]
@@ -1516,7 +1848,7 @@ class PortGUI(ctk.CTk):
                 self._set_step_expected(idx, len(steps))
                 self.log(f"\n>>> {label}", "step")
 
-                code = self._run_command(folder, command)
+                code = self._run_command(work_root or folder, command)
 
                 if self.cancel_requested:
                     self.log(self._tr("pipeline_cancelled"), "warn")
@@ -1537,6 +1869,8 @@ class PortGUI(ctk.CTk):
                 self._set_progress(idx, len(steps))
 
             self._collect_outputs(folder)
+            if work_root:
+                self._collect_outputs(work_root)
             self.log("\n--- Pipeline finished successfully ---", "ok")
             self._set_status(self._tr("status_done"), GREEN)
             self._finish(True, self._tr("finish_success"))

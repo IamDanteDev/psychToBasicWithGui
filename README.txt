@@ -13,13 +13,16 @@ The launcher creates a local virtual environment on first run, installs the
 dependencies, and starts the GUI. Nothing is installed globally.
 
 USAGE (GUI)
------------
+----------
 1. Click "Select Mod Folder" and pick the root of the mod (where pack.png is).
    The tool auto-copies the missing scripts and the blank engine into the mod
    folder, then runs each conversion step in order.
-2. Press Run. The final .sb3 is written next to the blank template as
+2. Choose the base engine in the "Base engine (.sb3)" dropdown — this selects
+   which Scratch template the build step starts from. Drop extra .sb3 files
+   next to this app and they appear in the dropdown.
+3. Press Run. The final .sb3 is written next to the blank template as
    built_<template>.sb3 inside the mod folder.
-3. Open the generated .sb3 in Scratch or Turbowarp to play.
+4. Open the generated .sb3 in Scratch or Turbowarp to play.
 
 MANUAL / CLI USE
 ----------------

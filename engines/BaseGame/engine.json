@@ -1,0 +1,7 @@
+{
+  "id": "basegame",
+  "name": "Base Game (v-slice / vanilla FNF 0.8)",
+  "source_root": "assets",
+  "dialect": "vslice",
+  "chart_difficulty_preference": ["normal", "hard", "easy"]
+}

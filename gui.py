@@ -79,7 +79,7 @@ STRINGS = {
         "folder_label": "Mod folder",
         "browse": "Browse...",
         "check_mod": "Check mod",
-        "folder_hint": "Mod root folder (pack.png). Missing toolkit files are auto-staged on Run.",
+        "folder_hint": "Mod root folder (pack.png or _polymod_meta.json). Missing toolkit files are auto-staged on Run.",
         "steps_label": "Steps to run",
         "check_all": "Check all",
         "uncheck_all": "Uncheck all",
@@ -124,7 +124,7 @@ STRINGS = {
         "build_step": "Building Scratch project (.sb3)",
         "run_step": "Running {step}",
         "auto_tag": "(auto)",
-        "ck_pack": "pack.png",
+        "ck_pack": "pack.png / _polymod_meta.json",
         "ck_chars": "data/characters JSONs",
         "ck_songs": "data/songs JSONs",
         "ck_weeks": "data/weeks JSONs",
@@ -189,7 +189,7 @@ STRINGS = {
         "folder_label": "Carpeta del mod",
         "browse": "Examinar...",
         "check_mod": "Comprobar mod",
-        "folder_hint": "Carpeta raíz del mod (pack.png). Los archivos del toolkit faltantes se copian solos al ejecutar.",
+        "folder_hint": "Carpeta raíz del mod (pack.png o _polymod_meta.json). Los archivos del toolkit faltantes se copian solos al ejecutar.",
         "steps_label": "Pasos a ejecutar",
         "check_all": "Marcar todos",
         "uncheck_all": "Desmarcar todos",
@@ -234,7 +234,7 @@ STRINGS = {
         "build_step": "Construyendo proyecto Scratch (.sb3)",
         "run_step": "Ejecutando {step}",
         "auto_tag": "(auto)",
-        "ck_pack": "pack.png",
+        "ck_pack": "pack.png / _polymod_meta.json",
         "ck_chars": "JSONs de data/characters",
         "ck_songs": "JSONs de data/songs",
         "ck_weeks": "JSONs de data/weeks",
@@ -281,6 +281,18 @@ STRINGS = {
         "source_engine_browse": "Examinar",
     },
 }
+
+
+# Marker files identifying a mod root folder. Psych Engine mods carry
+# pack.png; v-slice (vanilla FNF 0.8 / Polymod) mods carry _polymod_meta.json.
+MOD_ROOT_MARKERS = ("pack.png", "_polymod_meta.json")
+
+
+def _is_mod_root(folder):
+    return any(
+        os.path.isfile(os.path.join(folder, marker))
+        for marker in MOD_ROOT_MARKERS
+    )
 
 
 def _safe_glob(dirpath, tail="*", recursive=False):
@@ -513,6 +525,10 @@ class PortGUI(ctk.CTk):
         pack = os.path.join(folder, "pack.png")
         if os.path.exists(pack):
             paths.append(pack)
+        else:
+            polymod = os.path.join(folder, "_polymod_icon.png")
+            if os.path.exists(polymod):
+                paths.append(polymod)
         chars = os.path.join(folder, "data", "characters")
         if os.path.isdir(chars):
             paths.extend(
@@ -1350,27 +1366,26 @@ class PortGUI(ctk.CTk):
     def _resolve_mod_root(self, folder):
         """Find the actual mod root.
 
-        Accepted: the folder itself when it has pack.png, or a folder with
-        exactly ONE child that has pack.png (e.g. the project root holding
-        one mod). Returns (root_path, note) or (None, reason).
+        Accepted: the folder itself when it has a mod root marker
+        (pack.png for Psych, _polymod_meta.json for v-slice/Polymod), or a
+        folder with exactly ONE child that has a marker (e.g. the project
+        root holding one mod). Returns (root_path, note) or (None, reason).
         """
         folder = (folder or "").strip()
-        if os.path.isdir(folder) and os.path.exists(
-            os.path.join(folder, "pack.png")
-        ):
+        if os.path.isdir(folder) and _is_mod_root(folder):
             return folder, ""
         if os.path.isdir(folder):
             candidates = [
                 os.path.join(folder, name)
                 for name in os.listdir(folder)
                 if os.path.isdir(os.path.join(folder, name))
-                and os.path.exists(os.path.join(folder, name, "pack.png"))
+                and _is_mod_root(os.path.join(folder, name))
             ]
             if len(candidates) == 1:
                 return candidates[0], os.path.basename(candidates[0])
             if len(candidates) > 1:
                 return None, "multiple mods inside — select the mod folder itself"
-        return None, "no pack.png here or one level below"
+        return None, "no pack.png / _polymod_meta.json here or one level below"
 
     def _scan_mod(self, root):
         """Count every resource the port pipeline consumes (old + new layouts)."""
@@ -1644,7 +1659,7 @@ class PortGUI(ctk.CTk):
         self.log("=" * 60, "dim")
         self.log(self._tr("mod_check_header", folder=folder), "dim")
 
-        report(self._tr("ck_pack"), os.path.exists(os.path.join(folder, "pack.png")))
+        report(self._tr("ck_pack"), _is_mod_root(folder))
 
         for key, sub in (("ck_chars", "characters"), ("ck_songs", "songs"), ("ck_weeks", "weeks")):
             d = os.path.join(data, sub)

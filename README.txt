@@ -14,9 +14,11 @@ dependencies, and starts the GUI. Nothing is installed globally.
 
 USAGE (GUI)
 ----------
-1. Click "Select Mod Folder" and pick the root of the mod (where pack.png is).
-   The tool auto-copies the missing scripts and the blank engine into the mod
-   folder, then runs each conversion step in order.
+1. Click "Select Mod Folder" and pick the root of the mod (marked by
+   pack.png for Psych Engine mods, or _polymod_meta.json for v-slice /
+   vanilla FNF 0.8 mods). The tool auto-copies the missing scripts and the
+   blank engine into the mod folder, then runs each conversion step in
+   order.
 2. Choose the base engine in the "Base engine (.sb3)" dropdown — this selects
    which Scratch template the build step starts from. Drop extra .sb3 files
    next to this app and they appear in the dropdown.
@@ -26,7 +28,8 @@ USAGE (GUI)
 
 MANUAL / CLI USE
 ----------------
-1. Copy the files from this folder into the root of the mod (where pack.png is).
+1. Copy the files from this folder into the root of the mod
+   (marked by pack.png or _polymod_meta.json).
 2. Install Python and dependencies:
      pip install audioop-lts Pillow pydub mutagen customtkinter
    (On Windows, install Python 3.13 from the Microsoft Store.)

@@ -38,7 +38,7 @@ def run_prerequisite_scripts():
     for script in SCRIPTS_TO_RUN:
         if os.path.exists(script):
             print(f"Executing {script}...")
-            subprocess.run(["python", script], check=True)
+            subprocess.run([sys.executable, script], check=True)
     print("--- Sub-scripts Finished ---\n")
 
 
@@ -64,6 +64,7 @@ def process_engine(engine_id, engine_root):
     print(f"Engine     : {profile.get('name', engine_id)}")
     print(f"Engine root: {engine_root}")
     work_root = os.path.join(engine_root, f".engine_work_{engine_id}")
+    work_root = os.path.abspath(work_root)
     summary = adapter_vslice.apply_engine(engine_root, profile, work_root)
     if not summary:
         print("Source-engine preparation failed; aborting pipeline.")
@@ -79,7 +80,7 @@ def stage_toolkit_scripts(work_root=None):
     they must physically live there. They are staged AFTER the adapter
     rebuilds the root (the adapter resets it first).
     """
-    cwd = work_root or os.getcwd()
+    cwd = os.path.abspath(work_root or os.getcwd())
     for script in SCRIPTS_TO_RUN:
         src = os.path.join(_TOOL_DIR, script)
         if os.path.isfile(src) and not os.path.exists(os.path.join(cwd, script)):
@@ -625,7 +626,7 @@ def main():
     i = 0
     while i < len(args):
         if args[i] == "--engine" and i + 1 < len(args):
-            engine = args[i + 1]
+            engine = os.path.abspath(args[i + 1])
             i += 2
             continue
         if args[i] == "--source-engine" and i + 1 < len(args):

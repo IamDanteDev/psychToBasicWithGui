@@ -118,9 +118,14 @@ def link_or_copy(src, dst):
 
     Returns the mechanism actually used: "symlink", "junction", "copy"
     or "existing".
+
+    src is absolutized because the adapter builds the work root from the
+    tool directory, but the extractors later run with cwd = the work root;
+    a relative target would dangle from there.
     """
     if os.path.lexists(dst):
         return "existing"
+    src = os.path.abspath(src)
     if os.name == "nt":
         try:
             subprocess.run(

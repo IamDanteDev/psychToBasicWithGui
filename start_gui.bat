@@ -1,7 +1,5 @@
 @echo off
-rem Psychto Basic - GUI launcher (Windows)
-rem Creates a local virtual environment inside the project on first run,
-rem installs the dependencies there, then starts the GUI. Nothing global.
+rem spanish - que aburrido escribir pero solamente abre la gui pero este es solo para windows
 setlocal
 cd /d "%~dp0"
 
@@ -24,7 +22,7 @@ if not exist "venv\Scripts\python.exe" (
     )
 )
 
-echo [PsychtoBasic] Starting GUI...
+echo [PsychtoBasic] Starting GUI (open gui)
 "venv\Scripts\python.exe" gui.py
 if errorlevel 1 pause
-endlocal
+endlocal

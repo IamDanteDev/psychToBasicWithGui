@@ -1,4 +1,4 @@
-Psych to Basic - FNF (Psych Engine) mod to Scratch porting tool with GUI
+Port to Basic - FNF (Psych Engine) mod to Scratch porting tool with GUI
 =====================================================================
 
 Converts Friday Night Funkin' mods (Psych Engine format) into a playable
@@ -15,8 +15,7 @@ dependencies, and starts the GUI. Nothing is installed globally.
 USAGE (GUI)
 ----------
 1. Click "Select Mod Folder" and pick the root of the mod (marked by
-   pack.png for Psych Engine mods, or _polymod_meta.json for v-slice /
-   vanilla FNF 0.8 mods). The tool auto-copies the missing scripts and the
+   pack.png for Psych Engine mods). The tool auto-copies the missing scripts and the
    blank engine into the mod folder, then runs each conversion step in
    order.
 2. Choose the base engine in the "Base engine (.sb3)" dropdown — this selects
@@ -29,7 +28,7 @@ USAGE (GUI)
 MANUAL / CLI USE
 ----------------
 1. Copy the files from this folder into the root of the mod
-   (marked by pack.png or _polymod_meta.json).
+   (marked by pack.png).
 2. Install Python and dependencies:
      pip install audioop-lts Pillow pydub mutagen customtkinter
    (On Windows, install Python 3.13 from the Microsoft Store.)

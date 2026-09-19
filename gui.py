@@ -23,8 +23,6 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from PIL import Image, ImageTk
 
-import engine_profiles
-
 # Same order as port.py
 PREREQUISITE_SCRIPTS = [
     "weeks.py",
@@ -38,7 +36,7 @@ PREREQUISITE_SCRIPTS = [
     "stages.py",
 ]
 
-APP_TITLE = "Psych To Basic"
+APP_TITLE = "Port To Basic"
 APP_SUBTITLE = "FNF mod  →  Scratch .sb3 port"
 DEFAULT_FOLDER = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(DEFAULT_FOLDER, "assets")
@@ -58,14 +56,22 @@ RED = "#e05252"
 YELLOW = "#e0b84c"
 GRAY = "#8a8a8a"
 
+# Loading overlay: the BulderBF animation (assets/Porting/BulderBF, PNG
+# frames 1..N) loops in the bottom-right corner while the port runs.
+LOAD_ANIM_DIR = os.path.join(ASSETS_DIR, "Porting", "BulderBF")
+LOAD_ANIM_H = 340   # display height of the corner animation
+LOAD_ANIM_MS = 30   # one frame every 0.03s
+LOAD_ANIM_HOLD_MS = 1000  # pause on the last frame before replaying
+
 # --- UI strings (EN / ES). Pipeline log lines stay English (they mirror console). ---
 STRINGS = {
     "en": {
-        "app_title": "Psych To Basic",
+        "app_title": "Port To Basic",
         "app_subtitle": "FNF mod  →  Scratch .sb3 port",
-        "app_log_title": "Psych To Basic — Log",
+        "app_log_title": "Port To Basic — Log",
         "status_ready": "Ready",
         "status_running": "Running",
+        "porting_overlay": "Porting…",
         "status_failed": "Failed",
         "status_error": "Error",
         "status_cancelled": "Cancelled",
@@ -79,7 +85,7 @@ STRINGS = {
         "folder_label": "Mod folder",
         "browse": "Browse...",
         "check_mod": "Check mod",
-        "folder_hint": "Mod root folder (pack.png or _polymod_meta.json). Missing toolkit files are auto-staged on Run.",
+        "folder_hint": "Mod root folder (marked by pack.png). Missing toolkit files are auto-staged on Run.",
         "steps_label": "Steps to run",
         "check_all": "Check all",
         "uncheck_all": "Uncheck all",
@@ -89,6 +95,8 @@ STRINGS = {
         "open_turbowarp": "Open in TurboWarp",
         "cancel": "Cancel",
         "cancel_x": "✖ Cancel",
+        "confirm_cancel_title": "Cancel port",
+        "confirm_cancel_body": "Are you sure you want to stop the port?",
         "ffmpeg_missing": "⚠ FFmpeg missing",
         "run": "▶  Run",
         "assets_preview": "Assets",
@@ -124,7 +132,7 @@ STRINGS = {
         "build_step": "Building Scratch project (.sb3)",
         "run_step": "Running {step}",
         "auto_tag": "(auto)",
-        "ck_pack": "pack.png / _polymod_meta.json",
+        "ck_pack": "pack.png",
         "ck_chars": "data/characters JSONs",
         "ck_songs": "data/songs JSONs",
         "ck_weeks": "data/weeks JSONs",
@@ -162,20 +170,14 @@ STRINGS = {
         "template_hint": "Which Scratch template the build starts from. Drop extra .sb3 files next to this app and they show up here.",
         "template_none": "No .sb3 engine templates found next to the app.",
         "template_used": "Engine: {name}",
-        "source_engine_label": "Source engine",
-        "source_engine_hint": "What the mod data was made for. Use \"Psych Engine\" when the mod folder is already a Psych mod; pick another engine to convert it automatically into Psych layout.",
-        "source_engine_none": "No source engine profiles found (engines/<id>/engine.json missing).",
-        "source_engine_used": "Source: {name}",
-        "source_engine_root": "Engine folder",
-        "source_engine_root_hint": "Folder containing the engine's assets (assets/data, assets/songs...). Empty uses engines/<id> next to this app.",
-        "source_engine_browse": "Browse",
     },
     "es": {
-        "app_title": "Psych To Basic",
+        "app_title": "Port To Basic",
         "app_subtitle": "Mod FNF  →  Puerto a Scratch .sb3",
-        "app_log_title": "Psych To Basic — Registro",
+        "app_log_title": "Port To Basic — Registro",
         "status_ready": "Listo",
         "status_running": "Corriendo",
+        "porting_overlay": "Porteando…",
         "status_failed": "Error",
         "status_error": "Error",
         "status_cancelled": "Cancelado",
@@ -189,7 +191,7 @@ STRINGS = {
         "folder_label": "Carpeta del mod",
         "browse": "Examinar...",
         "check_mod": "Comprobar mod",
-        "folder_hint": "Carpeta raíz del mod (pack.png o _polymod_meta.json). Los archivos del toolkit faltantes se copian solos al ejecutar.",
+        "folder_hint": "Carpeta raíz del mod (marcada por pack.png). Los archivos del toolkit faltantes se copian solos al ejecutar.",
         "steps_label": "Pasos a ejecutar",
         "check_all": "Marcar todos",
         "uncheck_all": "Desmarcar todos",
@@ -199,6 +201,8 @@ STRINGS = {
         "open_turbowarp": "Abrir en TurboWarp",
         "cancel": "Cancelar",
         "cancel_x": "✖ Cancelar",
+        "confirm_cancel_title": "Detener porteo",
+        "confirm_cancel_body": "¿Seguro de detener el porteo?",
         "ffmpeg_missing": "⚠ Falta FFmpeg",
         "run": "▶  Ejecutar",
         "assets_preview": "Recursos",
@@ -234,7 +238,7 @@ STRINGS = {
         "build_step": "Construyendo proyecto Scratch (.sb3)",
         "run_step": "Ejecutando {step}",
         "auto_tag": "(auto)",
-        "ck_pack": "pack.png / _polymod_meta.json",
+        "ck_pack": "pack.png",
         "ck_chars": "JSONs de data/characters",
         "ck_songs": "JSONs de data/songs",
         "ck_weeks": "JSONs de data/weeks",
@@ -272,20 +276,12 @@ STRINGS = {
         "template_hint": "Desde qué plantilla Scratch parte la compilación. Agregue archivos .sb3 junto a la app y aparecerán aquí.",
         "template_none": "No se encontraron plantillas de motor .sb3 junto a la app.",
         "template_used": "Motor: {name}",
-        "source_engine_label": "Motor de origen",
-        "source_engine_hint": "Para qué motor se hizo el mod. Use \"Psych Engine\" cuando la carpeta del mod ya es un mod de Psych; elija otro motor para convertirlo automáticamente a layout Psych.",
-        "source_engine_none": "No se encontraron perfiles de motor de origen (falta engines/<id>/engine.json).",
-        "source_engine_used": "Origen: {name}",
-        "source_engine_root": "Carpeta del motor",
-        "source_engine_root_hint": "Carpeta con los assets del motor (assets/data, assets/songs...). Vacía usa engines/<id> junto a esta app.",
-        "source_engine_browse": "Examinar",
     },
 }
 
 
-# Marker files identifying a mod root folder. Psych Engine mods carry
-# pack.png; v-slice (vanilla FNF 0.8 / Polymod) mods carry _polymod_meta.json.
-MOD_ROOT_MARKERS = ("pack.png", "_polymod_meta.json")
+# Marker file identifying a mod root folder: Psych Engine mods carry pack.png.
+MOD_ROOT_MARKERS = ("pack.png",)
 
 
 def _is_mod_root(folder):
@@ -324,7 +320,7 @@ class PortGUI(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("940x680")
+        self.geometry("1280x720")
         self.minsize(620, 480)
         self._set_app_icon()
 
@@ -342,7 +338,7 @@ class PortGUI(ctk.CTk):
 
         self._build_ui()
         self._build_overlay()
-        self._load_bf_frames()
+        self._load_frames()
         self._refresh_steps()
 
         self.after(100, self._drain_queue)
@@ -396,10 +392,6 @@ class PortGUI(ctk.CTk):
                 data["lang"] = self.lang
             if getattr(self, "engine_var", None):
                 data["engine"] = self.engine_var.get()
-            if getattr(self, "source_engine_var", None):
-                data["source_engine"] = self.source_engine_var.get()
-            if getattr(self, "source_engine_root_var", None):
-                data["source_engine_root"] = self.source_engine_root_var.get()
             with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2)
         except OSError as exc:
@@ -418,19 +410,6 @@ class PortGUI(ctk.CTk):
 
     def _on_engine_change(self, _name=None):
         self._save_config(self.mod_folder.get().strip() or DEFAULT_FOLDER)
-
-    def _on_source_engine_change(self, _name=None):
-        self._save_config(self.mod_folder.get().strip() or DEFAULT_FOLDER)
-
-    def _pick_source_engine_root(self):
-        initial = self.source_engine_root_var.get().strip() or os.getcwd()
-        chosen = filedialog.askdirectory(
-            title=self._tr("source_engine_root"), initialdir=initial
-        )
-        if chosen:
-            self.source_engine_root_var.set(chosen)
-            self._save_config(self.mod_folder.get().strip() or DEFAULT_FOLDER)
-            self.log(f"Source engine folder: {chosen}", "step")
 
     def _importable(self, name):
         """True when the Python module can be imported in this interpreter."""
@@ -525,10 +504,6 @@ class PortGUI(ctk.CTk):
         pack = os.path.join(folder, "pack.png")
         if os.path.exists(pack):
             paths.append(pack)
-        else:
-            polymod = os.path.join(folder, "_polymod_icon.png")
-            if os.path.exists(polymod):
-                paths.append(polymod)
         chars = os.path.join(folder, "data", "characters")
         if os.path.isdir(chars):
             paths.extend(
@@ -659,26 +634,18 @@ class PortGUI(ctk.CTk):
             engine = self.engines[0] if self.engines else ""
         self.engine_var = ctk.StringVar(value=engine)
 
-        # Source engine profile: what the mod data was made for.
-        self.engine_profiles = engine_profiles.list_engines()
-        profile_ids = [p["id"] for p in self.engine_profiles]
-        source_engine = cfg.get("source_engine", "psych")
-        if source_engine not in profile_ids:
-            source_engine = "psych"
-        self.source_engine_var = ctk.StringVar(value=source_engine)
-        self.source_engine_root_var = ctk.StringVar(
-            value=cfg.get("source_engine_root", "")
-        )
-
         self.step_vars = {}
         self.status_var = ctk.StringVar(value=self._tr("status_ready"))
         self.progress_var = ctk.DoubleVar(value=0.0)
-        # BF loading animation state (initialized before overlay build)
-        self.bf_display_w = 110
-        self.bf_display_h = 116
-        self.bf_frames = []
-        self.bf_frame_idx = 0
-        self.bf_anim_job = None
+        # Loading animation state (initialized before overlay build)
+        self.load_display_w = 130
+        self.load_display_h = LOAD_ANIM_H
+        self.load_frames = []
+        self.load_frame_idx = 0
+        self.load_anim_job = None
+        # Overlay step caption state
+        self.overlay_step_text = self._tr("porting_overlay")
+        self.overlay_step_count = (0, 0)
         # Smooth progress state
         self.progress_display = 0.0
         self.progress_target = 0.0
@@ -824,63 +791,6 @@ class PortGUI(ctk.CTk):
         self.readiness_grid.pack(fill="x", padx=16, pady=(0, 12))
         self._update_readiness()
 
-        # --- Source engine (what the mod data was made for) ---
-        source_card = ctk.CTkFrame(self.app_scroll, corner_radius=14)
-        source_card.pack(fill="x", pady=(12, 0))
-
-        ctk.CTkLabel(
-            source_card,
-            text=self._tr("source_engine_label"),
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=GRAY,
-        ).pack(anchor="w", padx=16, pady=(12, 4))
-
-        if self.engine_profiles:
-            row = ctk.CTkFrame(source_card, fg_color="transparent")
-            row.pack(fill="x", padx=16, pady=(0, 6))
-            profile_ids = [p["id"] for p in self.engine_profiles]
-            self.source_engine_menu = ctk.CTkOptionMenu(
-                row,
-                values=profile_ids,
-                variable=self.source_engine_var,
-                command=self._on_source_engine_change,
-            )
-            self.source_engine_menu.pack(side="left")
-
-            root_row = ctk.CTkFrame(source_card, fg_color="transparent")
-            root_row.pack(fill="x", padx=16, pady=(0, 6))
-            ctk.CTkLabel(
-                root_row,
-                text=self._tr("source_engine_root"),
-                font=ctk.CTkFont(size=12),
-            ).pack(side="left")
-            ctk.CTkEntry(
-                root_row,
-                textvariable=self.source_engine_root_var,
-                fg_color="transparent",
-                border_width=0,
-            ).pack(side="left", fill="x", expand=True, padx=(8, 8))
-            ctk.CTkButton(
-                root_row,
-                text=self._tr("source_engine_browse"),
-                width=90,
-                command=self._pick_source_engine_root,
-            ).pack(side="left")
-
-            ctk.CTkLabel(
-                source_card,
-                text=self._tr("source_engine_hint"),
-                font=ctk.CTkFont(size=11),
-                text_color=GRAY,
-            ).pack(anchor="w", padx=16, pady=(0, 12))
-        else:
-            ctk.CTkLabel(
-                source_card,
-                text=self._tr("source_engine_none"),
-                text_color=YELLOW,
-                font=ctk.CTkFont(size=12),
-            ).pack(anchor="w", padx=16, pady=(0, 12))
-
         # --- Base engine (which .sb3 template the build starts from) ---
         engine_card = ctk.CTkFrame(self.app_scroll, corner_radius=14)
         engine_card.pack(fill="x", pady=(12, 0))
@@ -1024,7 +934,8 @@ class PortGUI(ctk.CTk):
         tb.tag_config("dim", foreground=GRAY)
 
     def _build_overlay(self):
-        """Black loading screen: white bar at bottom + BF running above it."""
+        """Black loading screen: white bar at bottom + the BulderBF animation
+        looping in the bottom-right corner."""
         self.overlay = ctk.CTkFrame(self, fg_color="#000000", corner_radius=0)
         self.overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
         self.overlay.place_forget()
@@ -1038,82 +949,251 @@ class PortGUI(ctk.CTk):
         self.overlay_bar.place(relx=0, rely=1.0, relwidth=1.0, relheight=0.05,
                                anchor="sw")
 
-        self.bf_label = ctk.CTkLabel(self.overlay, text="",
-                                     width=self.bf_display_w,
-                                     height=self.bf_display_h)
-
-        self.overlay_cancel = ctk.CTkButton(
+        # Current pipeline step caption (above the centered logo)
+        self.step_label = ctk.CTkLabel(
             self.overlay,
-            text=self._tr("cancel_x"),
+            text="",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color="#e6e6e6",
+        )
+        self.step_label.place(relx=0.5, rely=0.18, anchor="n")
+
+        # Port tool logo, centered
+        try:
+            logo_path = os.path.join(ASSETS_DIR, "PortToolLogo.png")
+            logo = Image.open(logo_path)
+            logo_w, logo_h = logo.size
+            logo_display_h = 240
+            logo_display_w = max(1, int(logo_display_h * (logo_w / logo_h)))
+            self._logo_image = ctk.CTkImage(
+                light_image=logo, dark_image=logo,
+                size=(logo_display_w, logo_display_h),
+            )
+            self.logo_label = ctk.CTkLabel(self.overlay, text="",
+                                           image=self._logo_image)
+            self.logo_label.place(relx=0.5, rely=0.5, anchor="center")
+        except Exception as exc:
+            print(f"Port logo load failed: {exc!r}")
+            self.logo_label = None
+
+        # BulderBF frame animation, anchored bottom-right above the bar
+        self.load_label = ctk.CTkLabel(self.overlay, text="",
+                                       width=self.load_display_w,
+                                       height=self.load_display_h)
+        self.load_label.place(relx=1.0, rely=0.92, anchor="se", x=-18, y=0)
+
+        # Log button, top-left (opens the port log window on demand)
+        self.overlay_log_btn = ctk.CTkButton(
+            self.overlay,
+            text=self._tr("log_label"),
             width=90,
             height=30,
             fg_color="#222222",
             hover_color="#333333",
+            command=self._open_log_window,
+        )
+        self.overlay_log_btn.place(relx=0.0, rely=0.0, anchor="nw", x=14, y=14)
+
+        # Exit button: artwork from assets/Porting with a hover variant
+        self._exit_img_normal = None
+        self._exit_img_hover = None
+        try:
+            self._exit_img_normal, self._exit_img_hover, ew, eh = \
+                self._make_exit_images()
+        except Exception as exc:
+            print(f"Exit image load failed: {exc!r}")
+            ew, eh = 90, 30
+
+        self.overlay_cancel = ctk.CTkButton(
+            self.overlay,
+            text="" if self._exit_img_normal else self._tr("cancel_x"),
+            image=self._exit_img_normal,
+            width=ew,
+            height=eh,
+            fg_color="transparent" if self._exit_img_normal else "#222222",
+            hover_color="#000000" if self._exit_img_normal else "#333333",
+            border_width=0,
             command=self._request_cancel,
         )
+        if self._exit_img_normal:
+            self.overlay_cancel.bind("<Enter>",
+                                     lambda _e: self._on_exit_hover(True))
+            self.overlay_cancel.bind("<Leave>",
+                                     lambda _e: self._on_exit_hover(False))
         self.overlay_cancel.place(relx=1.0, rely=0.0, anchor="ne", x=-14, y=14)
 
-    def _load_bf_frames(self):
-        """Load RuningBF.gif frames as CTkImages for the loading animation."""
+    def _make_exit_images(self):
+        """Exit button artwork: ExitUnselect (normal) / ExitSelect (hover),
+        both scaled to the same box so the button does not jump."""
+        unsel = Image.open(
+            os.path.join(ASSETS_DIR, "Porting", "ExitUnselect.png")
+        ).convert("RGBA")
+        sel = Image.open(
+            os.path.join(ASSETS_DIR, "Porting", "ExitSelect.png")
+        ).convert("RGBA")
+        box_h = 64
+        box_w = max(int(box_h * unsel.size[0] / unsel.size[1]),
+                    int(box_h * sel.size[0] / sel.size[1]))
+        canvas = Image.new("RGBA", (box_w, box_h), (0, 0, 0, 0))
+
+        def fit(im):
+            im = im.resize(
+                (max(1, int(box_h * im.size[0] / im.size[1])), box_h),
+                Image.Resampling.LANCZOS,
+            )
+            c = canvas.copy()
+            c.paste(im, ((box_w - im.size[0]) // 2, 0), im)
+            return c
+
+        normal = ctk.CTkImage(light_image=fit(unsel), dark_image=fit(unsel),
+                              size=(box_w, box_h))
+        hover = ctk.CTkImage(light_image=fit(sel), dark_image=fit(sel),
+                             size=(box_w, box_h))
+        return normal, hover, box_w, box_h
+
+    def _on_exit_hover(self, hovered):
+        if self._exit_img_normal and self._exit_img_hover:
+            self.overlay_cancel.configure(
+                image=self._exit_img_hover if hovered else self._exit_img_normal
+            )
+
+    def _load_frames(self):
+        """Load the BulderBF corner animation: PNG frames 1..N from
+        LOAD_ANIM_DIR. Falls back to RuningBF.gif if unavailable."""
+        try:
+            pngs = sorted(
+                (os.path.join(LOAD_ANIM_DIR, f)
+                 for f in os.listdir(LOAD_ANIM_DIR)
+                 if f.lower().endswith(".png")),
+                key=self._frame_sort_key,
+            )
+            if pngs:
+                self._load_png_frames(pngs)
+                return
+        except Exception as exc:
+            print(f"Loading animation load failed: {exc!r}")
+        self._load_gif_fallback()
+
+    @staticmethod
+    def _frame_sort_key(path):
+        """Numerical sort so 10.png follows 9.png (not 1, 10, 2...)."""
+        base = os.path.splitext(os.path.basename(path))[0]
+        return (base.isdigit(), int(base)) if base.isdigit() else (1, 0, base)
+
+    def _load_png_frames(self, pngs):
+        """Raster frames -> CTkImages on a common canvas.
+
+        Each frame is scaled uniformly and pasted centered horizontally,
+        anchored to the bottom of the canvas, so the feet keep the floor
+        and all frames line up regardless of small size differences.
+        """
+        first = Image.open(pngs[0])
+        ratio = first.size[0] / first.size[1]
+        self.load_display_w = max(1, int(self.load_display_h * ratio))
+        canvas_w, canvas_h = self.load_display_w, self.load_display_h
+        if hasattr(self, "load_label"):
+            self.load_label.configure(width=canvas_w, height=canvas_h)
+        for path in pngs:
+            im = Image.open(path).convert("RGBA")
+            # Uniform scale into the canvas: fit height, else fit width
+            scale = canvas_h / im.size[1]
+            w, h = max(1, int(im.size[0] * scale)), canvas_h
+            if w > canvas_w:
+                scale = canvas_w / im.size[0]
+                w, h = canvas_w, max(1, int(im.size[1] * scale))
+            im = im.resize((w, h), Image.Resampling.LANCZOS)
+            # Trim transparency so the character itself is centered, not the
+            # raw canvas margins
+            bbox = im.getchannel("A").getbbox()
+            if bbox:
+                im = im.crop(bbox)
+            canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+            canvas.paste(im, ((canvas_w - im.size[0]) // 2,
+                              canvas_h - im.size[1]), im)
+            self.load_frames.append(
+                ctk.CTkImage(light_image=canvas, dark_image=canvas,
+                             size=(canvas_w, canvas_h))
+            )
+
+    def _load_gif_fallback(self):
+        """Old fallback: RuningBF.gif frames."""
         try:
             from PIL import ImageSequence
 
             gif_path = os.path.join(ASSETS_DIR, "RuningBF.gif")
             im = Image.open(gif_path)
-            ratio = self.bf_display_w / im.size[0]
-            new_h = max(1, int(im.size[1] * ratio))
-            self.bf_display_h = new_h
-            if hasattr(self, "bf_label"):
-                self.bf_label.configure(width=self.bf_display_w,
-                                        height=new_h)
+            ratio = self.load_display_h / im.size[1]
+            new_w = max(1, int(im.size[0] * ratio))
+            self.load_display_w = new_w
+            if hasattr(self, "load_label"):
+                self.load_label.configure(width=new_w,
+                                          height=self.load_display_h)
             for frame in ImageSequence.Iterator(im):
                 f = frame.convert("RGBA").resize(
-                    (self.bf_display_w, new_h), Image.Resampling.LANCZOS
+                    (new_w, self.load_display_h), Image.Resampling.LANCZOS
                 )
-                self.bf_frames.append(
+                self.load_frames.append(
                     ctk.CTkImage(light_image=f, dark_image=f,
-                                 size=(self.bf_display_w, new_h))
+                                 size=(new_w, self.load_display_h))
                 )
         except Exception as exc:
-            print(f"BF GIF load failed: {exc!r}")
+            print(f"GIF fallback load failed: {exc!r}")
 
-    def _update_bf_position(self, frac):
-        if not self.bf_label.winfo_exists():
+    def _start_anim(self):
+        if self.load_frames:
+            self.load_label.configure(image=self.load_frames[0])
+            self.load_frame_idx = 0
+            self._animate()
+
+    def _stop_anim(self):
+        if self.load_anim_job:
+            self.after_cancel(self.load_anim_job)
+            self.load_anim_job = None
+
+    def _animate(self):
+        if not self.load_frames or not self.load_label.winfo_exists():
             return
-        # BF stays above the bar, moving with the load; ends at the bar's right end
-        relx = 0.05 + frac * 0.90
-        self.bf_label.place(relx=relx, rely=0.93, anchor="s")
-
-    def _start_bf_anim(self):
-        if self.bf_frames:
-            self.bf_label.configure(image=self.bf_frames[0])
-            self.bf_frame_idx = 0
-            self._animate_bf()
-
-    def _stop_bf_anim(self):
-        if self.bf_anim_job:
-            self.after_cancel(self.bf_anim_job)
-            self.bf_anim_job = None
-
-    def _animate_bf(self):
-        if not self.bf_frames or not self.bf_label.winfo_exists():
+        next_idx = self.load_frame_idx + 1
+        if next_idx >= len(self.load_frames):
+            # Loop finished: hold the last frame for one second, then replay.
+            self.load_anim_job = self.after(LOAD_ANIM_HOLD_MS, self._replay_anim)
             return
-        self.bf_frame_idx = (self.bf_frame_idx + 1) % len(self.bf_frames)
-        self.bf_label.configure(image=self.bf_frames[self.bf_frame_idx])
-        self.bf_anim_job = self.after(45, self._animate_bf)
+        self.load_frame_idx = next_idx
+        self.load_label.configure(image=self.load_frames[next_idx])
+        self.load_anim_job = self.after(LOAD_ANIM_MS, self._animate)
+
+    def _replay_anim(self):
+        if not self.load_frames or not self.load_label.winfo_exists():
+            return
+        self.load_frame_idx = 0
+        self.load_label.configure(image=self.load_frames[0])
+        self.load_anim_job = self.after(LOAD_ANIM_MS, self._animate)
 
     def _enter_loading(self):
         self.overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
         self.overlay.lift()
         self.overlay_bar.set(0.0)
-        self._update_bf_position(0.0)
-        self._start_bf_anim()
+        self.overlay_step_text = self._tr("porting_overlay")
+        self.overlay_step_count = (0, 0)
+        self._start_anim()
+        # The log is opened on demand via the top-left button; meanwhile all
+        # lines keep going to the main log box (covered by the overlay).
+        self.log_target = self.main_log_text
 
+        self._play_music()
+
+    def _open_log_window(self):
+        """Open (or bring to front) the port log window."""
+        if getattr(self, "log_win", None) and self.log_win.winfo_exists():
+            self.log_win.lift()
+            self.log_win.focus_force()
+            return
         self.log_win = ctk.CTkToplevel(self)
         self.log_win.title(self._tr("app_log_title"))
         self.log_win.geometry("720x520")
         self.log_win.minsize(480, 320)
         self.log_win.configure(fg_color="#111111")
+        self.log_win.protocol("WM_DELETE_WINDOW", self._close_log_window)
 
         self.log_target = ctk.CTkTextbox(
             self.log_win,
@@ -1124,10 +1204,20 @@ class PortGUI(ctk.CTk):
         self.log_target.pack(fill="both", expand=True, padx=12, pady=12)
         self._style_log_textbox(self.log_target)
 
-        self._play_music()
+        # Backfill whatever already happened in the main log
+        past = self.main_log_text.get("1.0", "end-1c")
+        if past.strip():
+            self.log_target.configure(state="normal")
+            self.log_target.insert("1.0", past + "\n")
+            self.log_target.configure(state="disabled")
+
+    def _close_log_window(self):
+        if getattr(self, "log_win", None) and self.log_win.winfo_exists():
+            self.log_win.destroy()
+        self.log_target = self.main_log_text
 
     def _exit_loading(self):
-        self._stop_bf_anim()
+        self._stop_anim()
         self._stop_tween()
         self._stop_music()
         self.overlay.place_forget()
@@ -1318,7 +1408,13 @@ class PortGUI(ctk.CTk):
         self.overlay_bar.set(frac)
         self.progress.set(frac)
         self.pct_label.configure(text=f"{int(frac * 100)}%")
-        self._update_bf_position(frac)
+        if not self.step_label.winfo_exists():
+            return
+        idx, total = self.overlay_step_count
+        suffix = f"  [{idx}/{total}]" if total and idx else ""
+        text = f"{self.overlay_step_text}{suffix}"
+        if self.step_label.cget("text") != text:
+            self.step_label.configure(text=text)
 
     def _start_tween(self):
         self.pipeline_running = True
@@ -1352,6 +1448,10 @@ class PortGUI(ctk.CTk):
         self.progress_display = d
         self._apply_progress(d)
 
+        # Done: stop the corner animation so the full white bar reads as "finished".
+        if d >= 0.999:
+            self._stop_anim()
+
         self.tween_job = self.after(40, self._tick_progress)
 
     def _set_running(self, running):
@@ -1366,9 +1466,8 @@ class PortGUI(ctk.CTk):
     def _resolve_mod_root(self, folder):
         """Find the actual mod root.
 
-        Accepted: the folder itself when it has a mod root marker
-        (pack.png for Psych, _polymod_meta.json for v-slice/Polymod), or a
-        folder with exactly ONE child that has a marker (e.g. the project
+        Accepted: the folder itself when it has the pack.png marker, or a
+        folder with exactly ONE child that has the marker (e.g. the project
         root holding one mod). Returns (root_path, note) or (None, reason).
         """
         folder = (folder or "").strip()
@@ -1385,7 +1484,7 @@ class PortGUI(ctk.CTk):
                 return candidates[0], os.path.basename(candidates[0])
             if len(candidates) > 1:
                 return None, "multiple mods inside — select the mod folder itself"
-        return None, "no pack.png / _polymod_meta.json here or one level below"
+        return None, "no pack.png here or one level below"
 
     def _scan_mod(self, root):
         """Count every resource the port pipeline consumes (old + new layouts)."""
@@ -1572,39 +1671,6 @@ class PortGUI(ctk.CTk):
             )
             return
 
-        # Non-Psych source engine: extractors run INSIDE port.py with the
-        # work root as cwd, so only the packaged build step is needed.
-        work_root = None
-        source_profile = None
-        if getattr(self, "source_engine_var", None):
-            source_profile = engine_profiles.get_engine(
-                self.source_engine_var.get()
-            )
-        if source_profile and not engine_profiles.is_psych(source_profile):
-            engine_folder = self.source_engine_root_var.get().strip()
-            if not engine_folder:
-                engine_folder = source_profile.get("folder", "") or os.path.join(
-                    DEFAULT_FOLDER, "engines", source_profile["id"]
-                )
-            if not os.path.isdir(engine_folder):
-                messagebox.showerror(
-                    self._tr("err_title"),
-                    f"Source engine folder not found:\n{engine_folder}",
-                )
-                return
-            work_root = os.path.join(
-                engine_folder, f".engine_work_{source_profile['id']}"
-            )
-            # The work root is (re)built by the adapter when port.py runs;
-            # port.py stages the extractor scripts into it by itself.
-            self.log(
-                f"Source engine '{source_profile['name']}': pipeline runs "
-                f"inside {work_root}",
-                "step",
-            )
-            self.log("Extractor steps run inside port.py for this engine.", "dim")
-            steps = ["BUILD_SB3"]
-
         if "BUILD_SB3" in steps:
             sb3 = _safe_glob(folder, "*.sb3")
             if not sb3:
@@ -1631,7 +1697,7 @@ class PortGUI(ctk.CTk):
         self.log("=" * 60, "dim")
 
         self.worker = threading.Thread(
-            target=self._run_pipeline, args=(folder, steps, work_root), daemon=True
+            target=self._run_pipeline, args=(folder, steps), daemon=True
         )
         self.worker.start()
 
@@ -1786,7 +1852,7 @@ class PortGUI(ctk.CTk):
                     "error",
                 )
 
-    def _run_pipeline(self, folder, steps, work_root=None):
+    def _run_pipeline(self, folder, steps):
         try:
             for idx, step in enumerate(steps, start=1):
                 if self.cancel_requested:
@@ -1823,47 +1889,17 @@ class PortGUI(ctk.CTk):
                         command = [sys.executable, "port.py", "--engine", engine_abs]
                     else:
                         command = [sys.executable, "-c", "import port; port.process_sb3()"]
-
-                    if work_root:
-                        source_profile = (
-                            engine_profiles.get_engine(
-                                self.source_engine_var.get()
-                            )
-                            if getattr(self, "source_engine_var", None)
-                            else None
-                        )
-                        self.log(
-                            self._tr(
-                                "source_engine_used",
-                                name=(
-                                    source_profile.get("name", "")
-                                    if source_profile
-                                    else ""
-                                ),
-                            ),
-                            "dim",
-                        )
-                        # port.py normalizes the engine into the work root,
-                        # then runs extractors + .sb3 build in there.
-                        command = [
-                            sys.executable,
-                            "port.py",
-                            "--source-engine",
-                            self.source_engine_var.get(),
-                            "--engine-root",
-                            os.path.dirname(work_root),
-                            "--engine",
-                            engine_abs,
-                        ]
                 else:
                     label = self._tr("run_step", step=step)
                     command = [sys.executable, step]
 
+                self.overlay_step_text = label
+                self.overlay_step_count = (idx, len(steps))
                 self._set_status(f"[{idx}/{len(steps)}] {label}")
                 self._set_step_expected(idx, len(steps))
                 self.log(f"\n>>> {label}", "step")
 
-                code = self._run_command(work_root or folder, command)
+                code = self._run_command(folder, command)
 
                 if self.cancel_requested:
                     self.log(self._tr("pipeline_cancelled"), "warn")
@@ -1884,8 +1920,6 @@ class PortGUI(ctk.CTk):
                 self._set_progress(idx, len(steps))
 
             self._collect_outputs(folder)
-            if work_root:
-                self._collect_outputs(work_root)
             self.log("\n--- Pipeline finished successfully ---", "ok")
             self._set_status(self._tr("status_done"), GREEN)
             self._finish(True, self._tr("finish_success"))
@@ -1930,8 +1964,21 @@ class PortGUI(ctk.CTk):
         return self.proc.returncode
 
     def _request_cancel(self):
+        if not messagebox.askyesno(
+            self._tr("confirm_cancel_title"),
+            self._tr("confirm_cancel_body"),
+        ):
+            return
         self.cancel_requested = True
         self._set_status(self._tr("status_cancelling"))
+        # Kill the running step right away. The worker only notices the cancel
+        # flag while reading child stdout, so a silent step would leave the
+        # overlay stuck; terminating closes the pipe and unblocks the reader.
+        if getattr(self, "proc", None) and self.proc.poll() is None:
+            try:
+                self.proc.terminate()
+            except Exception as exc:
+                self.log(f"Cancel: could not terminate step: {exc}", "warn")
 
     def _finish(self, ok, message=None, is_error=False):
         def show():

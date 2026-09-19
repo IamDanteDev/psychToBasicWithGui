@@ -16,9 +16,6 @@ generated/
 .atl/
 /PLAYTIME [2026]/
 
-# Source-engine content: engine folders are large local copies (exe, audio,
-# images). Only the profile metadata engines/<id>/engine.json is tracked.
-engines/*/*
-!engines/*/engine.json
 # Local mod working folders
 LeaMix/
+/FNF VS Missasinfonia v3/

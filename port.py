@@ -10,15 +10,6 @@ import sys
 import zipfile
 from PIL import Image
 
-# Sibling modules (engine profiles + adapters) live next to this script,
-# which may be invoked from any working directory.
-_TOOL_DIR = os.path.dirname(os.path.abspath(__file__))
-if _TOOL_DIR not in sys.path:
-    sys.path.insert(0, _TOOL_DIR)
-
-import adapter_vslice  # noqa: E402
-import engine_profiles  # noqa: E402
-
 # 1. Run prerequisite scripts
 SCRIPTS_TO_RUN = [
     "weeks.py",
@@ -40,51 +31,6 @@ def run_prerequisite_scripts():
             print(f"Executing {script}...")
             subprocess.run([sys.executable, script], check=True)
     print("--- Sub-scripts Finished ---\n")
-
-
-def process_engine(engine_id, engine_root):
-    """Prepare a non-Psych source engine for the pipeline.
-
-    Materializes the normalized Psych-layout work root via the matching
-    adapter and returns its path, or None on failure. Psych needs no
-    adapter and returns None.
-    """
-    profile = engine_profiles.get_engine(engine_id)
-    if profile is None:
-        print(f"Unknown source engine profile: {engine_id}")
-        return None
-    if engine_profiles.is_psych(profile):
-        print("Psych Engine: no adapter needed, building from the mod folder.")
-        return None
-    if not engine_root or not os.path.isdir(engine_root):
-        print(f"Source engine folder not found: {engine_root}")
-        return None
-
-    print("--- Preparing source engine ---")
-    print(f"Engine     : {profile.get('name', engine_id)}")
-    print(f"Engine root: {engine_root}")
-    work_root = os.path.join(engine_root, f".engine_work_{engine_id}")
-    work_root = os.path.abspath(work_root)
-    summary = adapter_vslice.apply_engine(engine_root, profile, work_root)
-    if not summary:
-        print("Source-engine preparation failed; aborting pipeline.")
-        return None
-    print("--- Source engine ready ---\n")
-    return work_root
-
-
-def stage_toolkit_scripts(work_root=None):
-    """Copy the extractor scripts next to the pipeline working directory.
-
-    The extractors are launched by bare name with cwd = the work root, so
-    they must physically live there. They are staged AFTER the adapter
-    rebuilds the root (the adapter resets it first).
-    """
-    cwd = os.path.abspath(work_root or os.getcwd())
-    for script in SCRIPTS_TO_RUN:
-        src = os.path.join(_TOOL_DIR, script)
-        if os.path.isfile(src) and not os.path.exists(os.path.join(cwd, script)):
-            shutil.copy2(src, os.path.join(cwd, script))
 
 
 def get_file_md5(file_path):
@@ -620,8 +566,6 @@ def process_sb3(engine_path=None):
 
 def main():
     engine = None
-    source_engine = None
-    engine_root = None
     args = sys.argv[1:]
     i = 0
     while i < len(args):
@@ -629,26 +573,7 @@ def main():
             engine = os.path.abspath(args[i + 1])
             i += 2
             continue
-        if args[i] == "--source-engine" and i + 1 < len(args):
-            source_engine = args[i + 1]
-            i += 2
-            continue
-        if args[i] == "--engine-root" and i + 1 < len(args):
-            engine_root = args[i + 1]
-            i += 2
-            continue
         i += 1
-
-    # Non-Psych source engines are normalized into a work root first and the
-    # whole pipeline (extractors + .sb3 build) runs with that as the cwd.
-    if source_engine:
-        work_root = process_engine(source_engine, engine_root)
-        if not work_root:
-            print("Source engine preparation failed; aborting.")
-            return
-        os.chdir(work_root)
-        stage_toolkit_scripts(work_root)
-        print(f"Running pipeline inside work root: {work_root}\n")
 
     run_prerequisite_scripts()
     process_sb3(engine)
